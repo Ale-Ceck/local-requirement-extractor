@@ -1,0 +1,17 @@
+*.pdf
+*.xlsx
+*.json
+*.log
+*.md
+!README.md
+
+.env*
+*.DS_Store
+
+.pytest_cache
+.venv
+.vscode
+
+data/
+node_modules/
+src/config/
