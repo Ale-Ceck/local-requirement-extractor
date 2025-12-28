@@ -5,6 +5,7 @@ from langchain_core.documents import Document
 from transformers import AutoTokenizer
 import os
 
+from config.schema import ChunkingConfig
 from utils.logging_config import setup_logger
 
 logger = setup_logger(__name__)
@@ -12,14 +13,16 @@ logger = setup_logger(__name__)
 class MarkdownSplitter:
     """Split Markdown file in chunks ready to be processed by LLM."""
 
-    def __init__(self):
-        """Initialize the Markdown Splitter"""
+    def __init__(self, config: Optional[ChunkingConfig] = None, tokenizer=None):
+        """Initialize the Markdown Splitter with centralized configuration."""
+        self.config = config or ChunkingConfig()
         self.logger = logger
+        self.tokenizer = tokenizer
 
     def split_markdown(self, 
                        markdown_path: str, 
                        headers_to_split_on: Optional[List[Tuple[str, str]]] = None,
-                       strip_headers = False # Mantains headers into chunk's content
+                       strip_headers: Optional[bool] = None # Mantains headers into chunk's content
                        ) -> List[Document]:
         """
         Splits a markdown file into chunks based on headers using MarkdownHeaderTextSplitter.
@@ -54,10 +57,10 @@ class MarkdownSplitter:
             return []
 
         if headers_to_split_on is None:
-            headers_to_split_on = [
-                ("#",  "Header 1"),
-                ("##", "Header 2")
-            ]
+            headers_to_split_on = self.config.headers_to_split_on
+
+        if strip_headers is None:
+            strip_headers = self.config.strip_headers
 
         if not isinstance(headers_to_split_on, list) or not all(
             isinstance(h, tuple) and len(h) == 2 for h in headers_to_split_on
@@ -66,18 +69,38 @@ class MarkdownSplitter:
             return []
 
         try:
-            splitter = MarkdownHeaderTextSplitter(headers_to_split_on=headers_to_split_on, strip_headers= False)
+            splitter = MarkdownHeaderTextSplitter(headers_to_split_on=headers_to_split_on, strip_headers=strip_headers)
             documents = splitter.split_text(markdown_text)
 
-            optimized_chunks = optimize_chunks(documents=documents)
+            optimized_chunks = optimize_chunks(
+                documents=documents,
+                tokenizer=self.tokenizer,
+                max_tokens=self._max_tokens(),
+                merge_small_chunks=self.config.merge_small_chunks,
+            )
 
             return optimized_chunks
         
         except Exception as e:
             self.logger.error(f"Error during markdown splitting: {e}")
             return []
-        
-def optimize_chunks(documents: List[Document], tokenizer=None, max_tokens: int = 3500) -> List[Document]:
+    
+    def _max_tokens(self) -> int:
+        """Derive token limit from config, falling back to default heuristic."""
+        if self.config.max_chunk_chars:
+            return max(1, self._chars_to_tokens(self.config.max_chunk_chars))
+        return 3500
+
+    def _chars_to_tokens(self, char_count: int) -> int:
+        """Approximate token count from character count."""
+        return max(1, int(char_count / 3.8))
+
+def optimize_chunks(
+    documents: List[Document],
+    tokenizer=None,
+    max_tokens: int = 3500,
+    merge_small_chunks: bool = True,
+) -> List[Document]:
     """
     Optimize chunk length in order to reduce the number of calls to the LLM.
     First, it sub-splits any chunk that is too large.
@@ -114,6 +137,9 @@ def optimize_chunks(documents: List[Document], tokenizer=None, max_tokens: int =
         else:
             # Add chunks that are already a good size to the list for processing.
             processable_docs.append(doc)
+
+    if not merge_small_chunks:
+        return processable_docs
 
     grouped = defaultdict(list)
     for doc in processable_docs:
@@ -173,7 +199,11 @@ def count_tokens(text: str, tokenizer=None) -> int:
     else:
         return len(text) // 4
 
-def split_markdown(markdown_path: str, headers_to_split_on: Optional[List[Tuple[str, str]]] = None) -> List[Document]:
+def split_markdown(
+    markdown_path: str,
+    headers_to_split_on: Optional[List[Tuple[str, str]]] = None,
+    config: Optional[ChunkingConfig] = None,
+) -> List[Document]:
     """Convenience function to split markdown file."""
-    splitter = MarkdownSplitter()
+    splitter = MarkdownSplitter(config=config)
     return splitter.split_markdown(markdown_path, headers_to_split_on)
