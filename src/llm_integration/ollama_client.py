@@ -1,4 +1,3 @@
-import json
 from typing import Dict, Any, Optional, List
 from ollama import Client
 from config.schema import OllamaConfig
@@ -16,6 +15,34 @@ class OllamaClient:
             host=config.host,
             timeout=config.timeout_seconds
         )
+
+    @property
+    def client(self) -> Client:
+        """Expose the underlying Ollama client."""
+        return self._client
+
+    def _build_options(self, override_temperature: Optional[float]) -> Dict[str, Any]:
+        """Combine request options with configuration defaults."""
+        temperature = (
+            override_temperature
+            if override_temperature is not None
+            else self.config.temperature
+        )
+        options: Dict[str, Any] = {
+            "temperature": temperature if temperature is not None else 0.1
+        }
+
+        if self.config.top_p is not None:
+            options["top_p"] = self.config.top_p
+
+        if self.config.max_tokens is not None:
+            options["num_predict"] = self.config.max_tokens
+
+        return options
+
+    def _keep_alive_value(self) -> Optional[int]:
+        """Translate keep-alive preference into the value expected by Ollama."""
+        return None if self.config.keep_alive else 0
 
     def is_server_running(self) -> bool:
         """Check if Ollama server is running and accessible."""
@@ -54,7 +81,7 @@ class OllamaClient:
     
     def get_llm_response(self, prompt: str, model_name: str, 
                         system_prompt: Optional[str] = None,
-                        temperature: float = 0.1,
+                        temperature: Optional[float] = None,
                         max_retries: int = 3) -> Optional[str]:
         """Get response from LLM with error handling and retries.
         
@@ -62,7 +89,7 @@ class OllamaClient:
             prompt: User prompt to send to the model
             model_name: Name of the model to use
             system_prompt: Optional system prompt
-            temperature: Sampling temperature (0.0 to 1.0)
+            temperature: Sampling temperature (0.0 to 1.0). Falls back to config.
             max_retries: Maximum number of retry attempts
             
         Returns:
@@ -83,10 +110,8 @@ class OllamaClient:
                     system=system_prompt,
                     prompt=prompt,
                     stream=False,
-                    options={
-                        "temperature": temperature
-                    },
-                    keep_alive=0,
+                    options=self._build_options(temperature),
+                    keep_alive=self._keep_alive_value(),
                 )
 
                 if response and 'response' in response:
@@ -106,7 +131,7 @@ class OllamaClient:
     def get_structured_response(self, prompt: str, model_name: str,
                               system_prompt: Optional[str] = "",
                               images: Optional[List[str]] = None,
-                              temperature: float = 0.1,
+                              temperature: Optional[float] = None,
                               max_retries: int = 3) -> Optional[str]:#Dict[str, Any]]:
         """Get structured JSON response from LLM. Output format is set to JSON and the model is instruct to respond in JSON.
         
@@ -115,7 +140,7 @@ class OllamaClient:
             model_name: Name of the model to use
             system_prompt: Optional system prompt. Will include instruction to respond in JSON.
             images: Optional list of images. Input data for multimodal models
-            temperature: Sampling temperature (0.0 to 1.0)
+            temperature: Sampling temperature (0.0 to 1.0). Falls back to config.
             max_retries: Maximum number of retry attempts
             
         Returns:
@@ -139,10 +164,8 @@ class OllamaClient:
                     prompt=prompt,
                     stream=False,
                     images=images,
-                    options={
-                        "temperature": temperature
-                    },
-                    #keep_alive=0,
+                    options=self._build_options(temperature),
+                    keep_alive=self._keep_alive_value(),
                     format=RequirementList.model_json_schema()
                 )
 
