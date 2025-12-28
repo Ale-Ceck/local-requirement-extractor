@@ -27,8 +27,8 @@ def extractor():
     ollama_client = get_client()
     
     # Define paths
-    input_dir = Path("data/docling_markdown_output")
-    output_dir = Path("data/docling_output")
+    input_dir = Path("data/input/mineru2_5vl_filtered_md")
+    output_dir = Path("data/output/mineru2_5vl_filtered")
     
     if not fo.dir_exists(input_dir):
         logger.error(f"Input directory not found: {input_dir}")
@@ -42,7 +42,7 @@ def extractor():
     md_files = list(input_dir.glob("*.md"))
     
     if not md_files:
-        logger.warning("No Markdown files found in data/docling_markdown_output directory")
+        logger.warning(f"No Markdown files found in {input_dir} directory")
         return
     
     logger.info(f"Found {len(md_files)} Markdown file(s) to convert")
