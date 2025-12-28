@@ -11,9 +11,12 @@ logger = logging_config.setup_logger(__name__)
 class OllamaClient:
     """Client for interacting with Ollama server for LLM processing."""
     def __init__(self, config: OllamaConfig):
-        self.host = config.host
-        self.timeout = config.timeout_seconds
-    
+        self.config = config
+        self._client = Client(
+            host=config.host,
+            timeout=config.timeout_seconds
+        )
+
     def is_server_running(self) -> bool:
         """Check if Ollama server is running and accessible."""
         try:
@@ -156,18 +159,9 @@ class OllamaClient:
                     logger.error(f"Failed to get response after {max_retries} attempts")
                     return None
 
-# Global client instance
-_client = None
-
-def get_client(host: str = "http://localhost:11434", timeout: int = 300) -> OllamaClient:
-    """Get or create global OllamaClient instance."""
-    global _client
-    if _client is None:
-        _client = OllamaClient(host=host, timeout=timeout)
-    return _client
-'''
-This pattern is commonly referred to as the "singleton pattern" and is particularly useful in scenarios
-where maintaining a single connection or shared resource is critical, such as interacting with external APIs or servers.
-The purpose of this design is to ensure that only one instance of OllamaClient is created and reused throughout the 
-application, which can be beneficial for managing resources and maintaining consistent state.
-'''
+def get_client(config: OllamaConfig) -> OllamaClient:
+    """
+    Factory function.
+    Creates an OllamaClient using provided configuration.
+    """
+    return OllamaClient(config)
