@@ -1,18 +1,26 @@
-import pymupdf4llm
 import pathlib
-import logging
 from typing import Optional
 
-logger = logging.getLogger(__name__)
+import pymupdf4llm
+
+from config.schema import PDFConfig
+from utils.logging_config import setup_logger
+
+logger = setup_logger(__name__)
 
 
-def convert_pdf_to_markdown(pdf_path: str, output_dir: Optional[str] = "data/markdown_output") -> str:
+def convert_pdf_to_markdown(
+    pdf_path: str,
+    output_dir: Optional[str] = None,
+    config: Optional[PDFConfig] = None,
+) -> str:
     """
     Convert PDF to Markdown format using pymupdf4llm library.
     
     Args:
         pdf_path: Path to the PDF file to convert
         output_dir: Directory to save the markdown file (optional)
+        config: Centralized PDF configuration (optional)
     
     Returns:
         Path to the generated markdown file
@@ -23,6 +31,13 @@ def convert_pdf_to_markdown(pdf_path: str, output_dir: Optional[str] = "data/mar
         Exception: For other conversion errors
     """
     try:
+        config = config or PDFConfig()
+        if output_dir is None:
+            output_dir = config.markdown_output_dir
+
+        if output_dir is None:
+            raise ValueError("Markdown output directory is not configured.")
+
         # Validate input
         pdf_path_obj = pathlib.Path(pdf_path)
         if not pdf_path_obj.exists():
