@@ -1,6 +1,7 @@
 import json
 from typing import Dict, Any, Optional, List
 from ollama import Client
+from config.schema import OllamaConfig
 from utils import logging_config
 from data_models.requirement import RequirementList
 
@@ -9,17 +10,9 @@ logger = logging_config.setup_logger(__name__)
 
 class OllamaClient:
     """Client for interacting with Ollama server for LLM processing."""
-    
-    def __init__(self, host: str = "http://localhost:11434", timeout: int = 300):
-        """Initialize the Ollama client.
-        
-        Args:
-            host: Ollama server URL
-            timeout: Request timeout in seconds
-        """
-        self.host = host
-        self.timeout = timeout
-        self.client = Client(host=host)
+    def __init__(self, config: OllamaConfig):
+        self.host = config.host
+        self.timeout = config.timeout_seconds
     
     def is_server_running(self) -> bool:
         """Check if Ollama server is running and accessible."""
