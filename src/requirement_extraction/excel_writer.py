@@ -1,28 +1,57 @@
 # src/requirement_extractor/excel_writer.py
-import pandas as pd
 from pathlib import Path
+from typing import Optional
+
+import pandas as pd
+
+from config.schema import OutputConfig
 from data_models.requirement import RequirementList
 from utils.logging_config import setup_logger
 
-# Setup logger
 logger = setup_logger(__name__)
 
-def write_to_excel(requirement_list: RequirementList, output_path: str):
+class ExcelWriter:
+    """Write extracted requirements to an Excel file using centralized config."""
+
+    def __init__(self, config: OutputConfig):
+        self.config = config
+
+    def write(self, requirement_list: RequirementList, output_path: Optional[str] = None) -> None:
+        if output_path is None:
+            output_path = self._default_output_path()
+        write_to_excel(requirement_list, output_path, config=self.config)
+
+    def _default_output_path(self) -> str:
+        output_dir = Path(self.config.directory)
+        return str(output_dir / "requirements.xlsx")
+
+
+def write_to_excel(
+    requirement_list: RequirementList,
+    output_path: Optional[str],
+    config: Optional[OutputConfig] = None,
+) -> None:
     """Writes the extracted requirements to an Excel file.
     
     Args:
         requirement_list: RequirementList containing requirements to export
         output_path: Path where the Excel file should be saved
+        config: Centralized output configuration (optional)
         
     Raises:
         ValueError: If requirement_list is empty or output_path is invalid
         OSError: If file cannot be written due to permissions or disk space
     """
+    config = config or OutputConfig()
+
     # Input validation
     if not isinstance(requirement_list, RequirementList):
         raise ValueError("requirement_list must be a RequirementList instance")
-    
-    if not output_path or not output_path.strip():
+
+    if output_path is None:
+        output_path = str(Path(config.directory) / "requirements.xlsx")
+
+    if not output_path or not str(output_path).strip():
         raise ValueError("output_path cannot be empty")
     
     if requirement_list.is_empty():
