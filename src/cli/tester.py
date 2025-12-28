@@ -10,10 +10,11 @@ from pathlib import Path
 src_path = Path(__file__).parent.parent
 sys.path.insert(0, str(src_path))
 
+from config.loader import load_config
+from llm_integration.ollama_client import OllamaClient
+from requirement_extraction.excel_writer import write_to_excel
 from utils.logging_config import setup_logger
 from utils import file_operations as fo
-from llm_integration.ollama_client import get_client
-from requirement_extraction.excel_writer import write_to_excel
 
 from utils.markdown_splitter import split_markdown
 from data_models.requirement import RequirementList, Requirement
@@ -64,9 +65,10 @@ def parse_llm_response(response_str: str) -> RequirementList:
 
 def tester():
     """Extract requirements from all Markdown files in data/input and export to Excel format."""
+    config = load_config("config.yaml")
 
     # Instantiate the OllamaClient
-    ollama_client = get_client()
+    ollama_client = OllamaClient(config.ollama)
     
     # Check if server is running
     if not ollama_client.is_server_running():
@@ -93,14 +95,18 @@ def tester():
         # Extract requirements from Markdown
         logger.info(f"Starting requirement extraction from Markdown: {md_file}")
 
-        requirement_schema = RequirementList.model_json_schema()
+        requirement_schema = json.dumps(RequirementList.model_json_schema())
 
         # Chunk the markdown file
         headers_to_split_on = [
             ("#", "Header 1"),
             ("##", "Header 2")
         ]
-        chunks = split_markdown(markdown_path=md_file, headers_to_split_on=headers_to_split_on)
+        chunks = split_markdown(
+            markdown_path=md_file,
+            headers_to_split_on=headers_to_split_on,
+            config=config.chunking,
+        )
         docs = [doc.page_content for doc in chunks]
 
 # DEBUGGING: salvo i documenti splittati per vedere come sono
@@ -132,7 +138,10 @@ def tester():
                 print(prompt)
                 
                 # Get structured response from LLM
-                response_str = ollama_client.get_structured_response(prompt, model_name="gemma3:27b")
+                response_str = ollama_client.get_structured_response(
+                    prompt,
+                    model_name=config.extraction.model_name,
+                )
                 
                 if response_str:
                     # Store raw response for debugging
@@ -186,7 +195,11 @@ def tester():
         if not all_requirements.is_empty():
             try:
                 logger.info(f"Exporting requirements to Excel: {excel_filename}")
-                write_to_excel(requirement_list=all_requirements, output_path=str(excel_output_path))
+                write_to_excel(
+                    requirement_list=all_requirements,
+                    output_path=str(excel_output_path),
+                    config=config.output,
+                )
                 logger.info(f"Successfully exported {len(all_requirements)} requirements to {excel_output_path}")
             except Exception as e:
                 logger.error(f"Failed to export to Excel: {e}")
@@ -213,6 +226,7 @@ def tester():
 
 def main():
     """Try to extract the requirements passing the md file"""
+    config = load_config("config.yaml")
     md_file = Path("data/test/examples.md")
     with open(md_file, 'r') as file:
         content = file.read()
@@ -249,8 +263,11 @@ def main():
             ]
             """
     my_prompt = f"{task} {content}"
-    ollama_client = get_client()
-    response = ollama_client.get_structured_response(my_prompt, model_name="gemma3:12b")
+    ollama_client = OllamaClient(config.ollama)
+    response = ollama_client.get_structured_response(
+        my_prompt,
+        model_name=config.extraction.model_name,
+    )
     print(response)
 
 

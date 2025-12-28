@@ -5,10 +5,15 @@ Find all PDF files in input directory and extract requirements from each file an
 # main.py
 
 import argparse
+import sys
 from pathlib import Path
 
+# Add src to path so we can import our modules
+src_path = Path(__file__).parent.parent
+sys.path.insert(0, str(src_path))
+
 from config.loader import load_config
-from requirement_extractor import RequirementExtractor
+from requirement_extraction.requirement_extractor import RequirementExtractor
 
 
 def parse_args() -> argparse.Namespace:

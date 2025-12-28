@@ -10,9 +10,9 @@ from pathlib import Path
 src_path = Path(__file__).parent.parent
 sys.path.insert(0, str(src_path))
 
+from config.loader import load_config
 from utils.logging_config import setup_logger
 from utils import file_operations as fo
-from llm_integration.ollama_client import get_client
 from requirement_extraction.requirement_extractor import extract_requirements_from_markdown
 from requirement_extraction.excel_writer import write_to_excel
 
@@ -22,13 +22,11 @@ logger = setup_logger(__name__)
 
 def extractor():
     """Extract requirements from all Markdown files in data/input and export to Excel format."""
-
-    # Instantiate the OllamaClient
-    ollama_client = get_client()
+    config = load_config("config.yaml")
     
     # Define paths
-    input_dir = Path("data/input/mineru2_5vl_filtered_md")
-    output_dir = Path("data/output/mineru2_5vl_filtered")
+    input_dir = Path(config.input.path)
+    output_dir = Path(config.output.directory)
     
     if not fo.dir_exists(input_dir):
         logger.error(f"Input directory not found: {input_dir}")
@@ -53,7 +51,7 @@ def extractor():
             logger.info(f"Processing: {md_file.name}")
             
             # Extract requirements from Markdown
-            requirements = extract_requirements_from_markdown(str(md_file))
+            requirements = extract_requirements_from_markdown(str(md_file), config)
             logger.info(f"Successfully extracted {len(requirements)} requirements from {md_file.name}")
             
             # Generate Excel output path
@@ -62,7 +60,11 @@ def extractor():
             
             # Export to Excel
             logger.info(f"Exporting requirements to Excel: {excel_filename}")
-            write_to_excel(requirement_list=requirements, output_path=str(excel_output_path))
+            write_to_excel(
+                requirement_list=requirements,
+                output_path=str(excel_output_path),
+                config=config.output,
+            )
             logger.info(f"Successfully exported {len(requirements)} requirements to {excel_output_path}")
             
             # Print summary for user

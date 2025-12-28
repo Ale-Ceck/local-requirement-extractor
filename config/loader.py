@@ -2,7 +2,17 @@ import yaml
 from pathlib import Path
 from typing import Any, Dict
 
-from config.schema import AppConfig, InputConfig
+from config.schema import (
+    AppConfig,
+    ChunkingConfig,
+    ExtractionConfig,
+    InputConfig,
+    LoggingConfig,
+    OllamaConfig,
+    OutputConfig,
+    ParallelConfig,
+    PDFConfig,
+)
 
 
 def _require_keys(data: Dict[str, Any], keys: list[str]):
@@ -17,17 +27,17 @@ def load_config(path: str | Path) -> AppConfig:
         raise FileNotFoundError(f"Config file not found: {path}")
 
     with path.open("r", encoding="utf-8") as f:
-        raw = yaml.safe_load(f)
+        raw = yaml.safe_load(f) or {}
 
     _require_keys(raw, ["input"])
 
     return AppConfig(
         input=InputConfig(**raw["input"]),
-        output=raw.get("output", {}),
-        pdf=raw.get("pdf", {}),
-        chunking=raw.get("chunking", {}),
-        extraction=raw.get("extraction", {}),
-        parallel=raw.get("parallel", {}),
-        ollama=raw.get("ollama", {}),
-        logging=raw.get("logging", {}),
+        output=OutputConfig(**raw.get("output", {})),
+        pdf=PDFConfig(**raw.get("pdf", {})),
+        chunking=ChunkingConfig(**raw.get("chunking", {})),
+        extraction=ExtractionConfig(**raw.get("extraction", {})),
+        parallel=ParallelConfig(**raw.get("parallel", {})),
+        ollama=OllamaConfig(**raw.get("ollama", {})),
+        logging=LoggingConfig(**raw.get("logging", {})),
     )

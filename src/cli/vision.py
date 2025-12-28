@@ -7,11 +7,12 @@ import concurrent.futures
 src_path = Path(__file__).parent.parent
 sys.path.insert(0, str(src_path))
 
-from utils.logging_config import setup_logger
-from utils import file_operations as fo
-from llm_integration.ollama_client import get_client
+from config.loader import load_config
+from llm_integration.ollama_client import OllamaClient
 from requirement_extraction.excel_writer import write_to_excel
 from data_models.requirement import RequirementList, Requirement
+from utils.logging_config import setup_logger
+from utils import file_operations as fo
 
 import base64
 import io
@@ -60,12 +61,15 @@ def pdf_to_base64_images(pdf_path: str, output_dir: str = None):
 # Get a logger instance
 logger = setup_logger(__name__)
 
+# Load configuration once
+config = load_config("config.yaml")
+
 # Instantiate the OllamaClient
-ollama_client = get_client()
+ollama_client = OllamaClient(config.ollama)
 
 # Define paths
-input_dir = Path("data/test")
-output_dir = Path("data/test/vision")
+input_dir = Path(config.input.path)
+output_dir = Path(config.output.directory)
 
 prompt = """Your task is to identify and extract all requirement entries from the provided text in the attached document. A requirement consists of:
     1.  A unique code (e.g., REQ-123, HAA-54).
@@ -106,7 +110,11 @@ def call_llm_with_image(image_path: str, pdf_name: str, idx: int):
         with open(image, "rb") as f:
             image_b64 = base64.b64encode(f.read()).decode("utf-8")
 
-    response = ollama_client.get_structured_response(prompt=prompt, model_name="gemma3:12b",images=image_path) #[image_b64])
+    response = ollama_client.get_structured_response(
+        prompt=prompt,
+        model_name=config.extraction.model_name,
+        images=image_path,
+    )
     
     return {
         "pdf": pdf_name,
@@ -225,7 +233,11 @@ def export_excel():
     if not all_requirements.is_empty():
         try:
             logger.info(f"Exporting requirements to Excel: {excel_filename}")
-            write_to_excel(requirement_list=all_requirements, output_path=str(excel_output_path))
+            write_to_excel(
+                requirement_list=all_requirements,
+                output_path=str(excel_output_path),
+                config=config.output,
+            )
             logger.info(f"Successfully exported {len(all_requirements)} requirements to {excel_output_path}")
         except Exception as e:
             logger.error(f"Failed to export to Excel: {e}")
@@ -263,5 +275,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
