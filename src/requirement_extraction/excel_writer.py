@@ -5,8 +5,8 @@ from typing import Optional
 import pandas as pd
 
 from config.schema import OutputConfig
-from data_models.requirement import RequirementList
-from utils.logging_config import setup_logger
+from src.data_models.requirement import RequirementList
+from src.utils.logging_config import setup_logger
 
 logger = setup_logger(__name__)
 

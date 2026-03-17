@@ -1,6 +1,6 @@
 import yaml
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Union
 
 from config.schema import (
     AppConfig,
@@ -21,7 +21,7 @@ def _require_keys(data: Dict[str, Any], keys: list[str]):
         raise ValueError(f"Missing required config keys: {missing}")
 
 
-def load_config(path: str | Path) -> AppConfig:
+def load_config(path: Union[str, Path]) -> AppConfig:
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"Config file not found: {path}")

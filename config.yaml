@@ -1,13 +1,13 @@
 input:
-  path: "./input"
+  path: "./data/input/[AD39] JUI-EST-INST-RS-001 Is2.2_JUICE Instruments Reduced Thermal Model Specification.pdf"
   mode: "pdf"
-  recursive: true
+  recursive: false
 
 output:
-  directory: "./output"
+  directory: "./data/output"
 
 pdf:
-  markdown_output_dir: "./markdown"
+  markdown_output_dir: "./data/markdown_output"
 
 chunking:
   strip_headers: false
@@ -21,6 +21,7 @@ parallel:
 
 ollama:
   host: "http://localhost:11434"
+  timeout_seconds: 1800
 
 logging:
-  level: "INFO"
+  level: "DEBUG"

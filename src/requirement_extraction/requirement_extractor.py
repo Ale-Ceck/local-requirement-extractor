@@ -8,13 +8,13 @@ from typing import Iterable, Optional
 from langchain_core.documents import Document
 
 from config.schema import AppConfig
-from data_models.requirement import RequirementList
-from llm_integration.ollama_client import OllamaClient
-from llm_integration.prompt_templates import get_prompt
-from pdf_processing.pdf_to_markdown import convert_pdf_to_markdown
-from requirement_extraction.excel_writer import ExcelWriter
-from utils.logging_config import setup_logger
-from utils.markdown_splitter import MarkdownSplitter
+from src.data_models.requirement import RequirementList
+from src.llm_integration.ollama_client import OllamaClient
+from src.llm_integration.prompt_templates import get_prompt
+from src.pdf_processing.pdf_to_markdown import convert_pdf_to_markdown
+from src.requirement_extraction.excel_writer import ExcelWriter
+from src.utils.logging_config import setup_logger
+from src.utils.markdown_splitter import MarkdownSplitter
 
 logger = setup_logger(__name__)
 

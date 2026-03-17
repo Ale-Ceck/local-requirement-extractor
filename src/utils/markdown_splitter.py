@@ -6,7 +6,7 @@ from transformers import AutoTokenizer
 import os
 
 from config.schema import ChunkingConfig
-from utils.logging_config import setup_logger
+from src.utils.logging_config import setup_logger
 
 logger = setup_logger(__name__)
 

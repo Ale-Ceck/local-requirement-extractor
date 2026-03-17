@@ -4,7 +4,7 @@ from typing import Optional
 import pymupdf4llm
 
 from config.schema import PDFConfig
-from utils.logging_config import setup_logger
+from src.utils.logging_config import setup_logger
 
 logger = setup_logger(__name__)
 

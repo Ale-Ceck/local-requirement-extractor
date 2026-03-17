@@ -1,8 +1,8 @@
 from typing import Dict, Any, Optional, List
 from ollama import Client
 from config.schema import OllamaConfig
-from utils import logging_config
-from data_models.requirement import RequirementList
+from src.utils import logging_config
+from src.data_models.requirement import RequirementList
 
 logger = logging_config.setup_logger(__name__)
 
