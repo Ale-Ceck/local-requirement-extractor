@@ -2,7 +2,7 @@ from typing import Dict, Any, Optional, List
 from ollama import Client
 from config.schema import OllamaConfig
 from src.utils import logging_config
-from src.data_models.requirement import RequirementList
+from src.data_models.requirement import RequirementExtractionResult
 
 logger = logging_config.setup_logger(__name__)
 
@@ -131,8 +131,9 @@ class OllamaClient:
     def get_structured_response(self, prompt: str, model_name: str,
                               system_prompt: Optional[str] = "",
                               images: Optional[List[str]] = None,
+                              response_schema: Optional[Dict[str, Any]] = None,
                               temperature: Optional[float] = None,
-                              max_retries: int = 3) -> Optional[str]:#Dict[str, Any]]:
+                              max_retries: int = 3) -> Optional[str]:
         """Get structured JSON response from LLM. Output format is set to JSON and the model is instruct to respond in JSON.
         
         Args:
@@ -166,7 +167,7 @@ class OllamaClient:
                     images=images,
                     options=self._build_options(temperature),
                     keep_alive=self._keep_alive_value(),
-                    format=RequirementList.model_json_schema()
+                    format=response_schema or RequirementExtractionResult.model_json_schema()
                 )
 
                 if response and 'response' in response:

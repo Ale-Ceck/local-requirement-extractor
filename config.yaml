@@ -5,15 +5,67 @@ input:
 
 output:
   directory: "./data/output"
+  include_metadata: true
 
 pdf:
   markdown_output_dir: "./data/markdown_output"
 
+parser:
+  backend: "paddleocr_vl"
+  language: "en"
+  vlm_backend: "mlx-vlm-server"
+  vlm_server_url: "http://localhost:8111/"
+  vlm_api_model_name: "mlx-community/PaddleOCR-VL-1.5-bf16"
+  vlm_server_command: "mlx_vlm.server --port 8111"
+  batch_page_count:
+  batch_output_subdir: "batches"
+  layout_detection: true
+  extract_tables: true
+  use_doc_orientation_classify: false
+  use_doc_unwarping: false
+  ignored_paddle_labels:
+    - "number"
+    - "footnote"
+    - "header"
+    - "header_image"
+    - "footer"
+    - "footer_image"
+    - "aside_text"
+  include_note_like_segments: "conditional"
+  exclude_front_matter: true
+  toc_section_pruning_mode: "audit"
+  toc_excluded_section_titles:
+    - "contents"
+    - "table of contents"
+    - "summary"
+    - "document change log"
+    - "introduction"
+    - "introduction and scope"
+    - "scope"
+    - "summary description"
+    - "acronym list"
+    - "documents"
+    - "applicable documents"
+    - "export control information"
+    - "requirement section cross reference"
+    - "modifications list"
+    - "section cross reference"
+    - "distribution list"
+    - "configuration management"
+    - "annex"
+    - "appendix"
+  toc_pruning_report_filename: "toc-pruning-report.json"
+  persist_anchored_markdown: true
+
 chunking:
   strip_headers: false
+  max_chunk_chars: 4000
 
 extraction:
   model_name: "llama3:latest"
+  deduplicate_requirements: true
+  normalize_codes: true
+  allow_uncited_results: false
 
 parallel:
   enabled: true

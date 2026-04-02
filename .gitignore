@@ -5,6 +5,10 @@
 *.md
 !README.md
 
+*.pyc
+__pycache__/
+*.log.*
+
 .env*
 *.DS_Store
 

@@ -12,8 +12,7 @@ sys.path.insert(0, str(src_path))
 
 from utils.logging_config import setup_logger
 from utils import file_operations as fo
-#from pdf_processing.pdf_to_markdown import convert_pdf_to_markdown
-from pdf_processing.docling_converter import convert_pdf_to_markdown
+from pdf_processing.pdf_to_markdown import convert_pdf_to_markdown
 
 
 # Get a logger instance
@@ -25,8 +24,6 @@ def converter():
 
     # Define paths
     input_dir = Path("data/test")
-    #markdown_dir = Path("data/markdown_output")
-    #markdown_dir = Path("data/docling_markdown_output")
     markdown_dir = input_dir
     
     if not fo.dir_exists(input_dir):

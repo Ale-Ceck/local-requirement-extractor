@@ -20,6 +20,12 @@ class OutputConfig:
     overwrite_existing: bool = False
     include_metadata: bool = True
     sheet_name: str = "Requirements"
+    write_review_artifact: bool = True
+    review_artifact_filename: str = "requirements.review.json"
+    write_review_markdown: bool = True
+    review_markdown_filename: str = "requirements.review.md"
+    write_review_html: bool = True
+    review_html_filename: str = "requirements.review.html"
 
 
 # ---------- PDF ----------
@@ -30,6 +36,67 @@ class PDFConfig:
     force_rebuild_markdown: bool = False
     cleanup_markdown: bool = True
     keep_intermediate_files: bool = False
+
+
+# ---------- Parser ----------
+
+@dataclass
+class ParserConfig:
+    backend: str = "paddleocr_vl"
+    language: str = "en"
+    vlm_backend: str = "mlx-vlm-server"
+    vlm_server_url: str = "http://localhost:8111/"
+    vlm_api_model_name: str = "mlx-community/PaddleOCR-VL-1.5-bf16"
+    vlm_api_key: Optional[str] = None
+    vlm_server_command: str = "mlx_vlm.server --port 8111"
+    batch_page_count: Optional[int] = None
+    batch_output_subdir: str = "batches"
+    max_pages: Optional[int] = None
+    page_start: Optional[int] = None
+    page_end: Optional[int] = None
+    layout_detection: bool = True
+    extract_tables: bool = True
+    use_doc_orientation_classify: bool = False
+    use_doc_unwarping: bool = False
+    use_textline_orientation: bool = False
+    ignored_paddle_labels: List[str] = field(
+        default_factory=lambda: [
+            "number",
+            "footnote",
+            "header",
+            "header_image",
+            "footer",
+            "footer_image",
+            "aside_text",
+        ]
+    )
+    include_note_like_segments: str = "conditional"
+    exclude_front_matter: bool = True
+    toc_section_pruning_mode: str = "audit"
+    toc_excluded_section_titles: List[str] = field(
+        default_factory=lambda: [
+            "contents",
+            "table of contents",
+            "summary",
+            "document change log",
+            "introduction",
+            "introduction and scope",
+            "scope",
+            "summary description",
+            "acronym list",
+            "documents",
+            "applicable documents",
+            "export control information",
+            "requirement section cross reference",
+            "section cross reference",
+            "distribution list",
+            "configuration management",
+            "annex",
+            "appendix",
+        ]
+    )
+    toc_pruning_report_filename: str = "toc-pruning-report.json"
+    persist_anchored_markdown: bool = True
 
 
 # ---------- Chunking ----------
@@ -56,6 +123,7 @@ class ExtractionConfig:
     deduplicate_requirements: bool = True
     normalize_codes: bool = True
     allow_empty_results: bool = False
+    allow_uncited_results: bool = False
 
 
 # ---------- Parallel ----------
@@ -99,6 +167,7 @@ class AppConfig:
     input: InputConfig
     output: OutputConfig = field(default_factory=OutputConfig)
     pdf: PDFConfig = field(default_factory=PDFConfig)
+    parser: ParserConfig = field(default_factory=ParserConfig)
     chunking: ChunkingConfig = field(default_factory=ChunkingConfig)
     extraction: ExtractionConfig = field(default_factory=ExtractionConfig)
     parallel: ParallelConfig = field(default_factory=ParallelConfig)

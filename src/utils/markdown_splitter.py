@@ -115,9 +115,10 @@ def optimize_chunks(
         return []
     
     processable_docs = []
+    chunk_size = int(max_tokens * 3.8)
     recursive_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=int(max_tokens * 3.8),  # Using heuristic: ~3.8 chars/token
-        chunk_overlap=200
+        chunk_size=chunk_size,
+        chunk_overlap=min(200, max(0, chunk_size - 1)),
     )
 
     for doc in documents:

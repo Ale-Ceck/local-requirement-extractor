@@ -11,6 +11,7 @@ from config.schema import (
     OllamaConfig,
     OutputConfig,
     ParallelConfig,
+    ParserConfig,
     PDFConfig,
 )
 
@@ -35,6 +36,7 @@ def load_config(path: Union[str, Path]) -> AppConfig:
         input=InputConfig(**raw["input"]),
         output=OutputConfig(**raw.get("output", {})),
         pdf=PDFConfig(**raw.get("pdf", {})),
+        parser=ParserConfig(**raw.get("parser", {})),
         chunking=ChunkingConfig(**raw.get("chunking", {})),
         extraction=ExtractionConfig(**raw.get("extraction", {})),
         parallel=ParallelConfig(**raw.get("parallel", {})),

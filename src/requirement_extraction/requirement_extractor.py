@@ -1,6 +1,5 @@
-# requirement_extractor.py
-
 import concurrent.futures
+import copy
 import json
 from pathlib import Path
 from typing import Iterable, Optional
@@ -8,10 +7,12 @@ from typing import Iterable, Optional
 from langchain_core.documents import Document
 
 from config.schema import AppConfig
-from src.data_models.requirement import RequirementList
+from src.data_models.requirement import Requirement, RequirementExtractionResult, RequirementList
 from src.llm_integration.ollama_client import OllamaClient
 from src.llm_integration.prompt_templates import get_prompt
-from src.pdf_processing.pdf_to_markdown import convert_pdf_to_markdown
+from src.pdf_processing.factory import create_document_parser
+from src.pdf_processing.models import SemanticSegment
+from src.requirement_extraction.document_chunker import AnchoredMarkdownChunk, SemanticDocumentChunker
 from src.requirement_extraction.excel_writer import ExcelWriter
 from src.utils.logging_config import setup_logger
 from src.utils.markdown_splitter import MarkdownSplitter
@@ -22,266 +23,466 @@ logger = setup_logger(__name__)
 class RequirementExtractor:
     """Extract requirements from PDF or Markdown documents using LLM processing."""
 
-    def __init__(self, config: AppConfig) -> None:
-        """Initialize the requirement extractor with centralized configuration."""
+    def __init__(
+        self,
+        config: AppConfig,
+        ollama_client: Optional[OllamaClient] = None,
+        document_parser=None,
+        toc_pruning_plan: Optional[dict] = None,
+        markdown_splitter: Optional[MarkdownSplitter] = None,
+        chunker: Optional[SemanticDocumentChunker] = None,
+        excel_writer: Optional[ExcelWriter] = None,
+    ) -> None:
         self.config = config
         self.model_name = config.extraction.model_name
         self.max_workers = max(1, config.parallel.max_workers)
         self.parallel_enabled = config.parallel.enabled
-        self.ollama_client = OllamaClient(config.ollama)
-        self.splitter = MarkdownSplitter(config.chunking)
-        self.excel_writer = ExcelWriter(config.output)
+        self.ollama_client = ollama_client or OllamaClient(config.ollama)
+        self.toc_pruning_plan = toc_pruning_plan
+        self.document_parser = document_parser or create_document_parser(config, toc_pruning_plan=toc_pruning_plan)
+        self.markdown_splitter = markdown_splitter or MarkdownSplitter(config.chunking)
+        self.chunker = chunker or SemanticDocumentChunker(config.chunking)
+        self.excel_writer = excel_writer or ExcelWriter(config.output)
 
     def run(self) -> None:
-        """Run the extraction pipeline based on configuration."""
         input_path = Path(self.config.input.path)
-
         if self.config.input.mode == "pdf":
             source_files = self._collect_pdfs(input_path)
             all_requirements = self._extract_from_pdfs(source_files)
         else:
             source_files = self._collect_markdown_files(input_path)
             all_requirements = self._extract_from_markdown_files(source_files)
-
         self.excel_writer.write(RequirementList(all_requirements))
 
-    def extract_requirements_from_pdf(
-        self,
-        pdf_path: str,
-        markdown_dir: Optional[str] = None,
-    ) -> RequirementList:
-        """
-        Extract requirements from a PDF file.
-
-        Args:
-            pdf_path: Path to the PDF file
-            markdown_dir: Optional directory for markdown output
-
-        Returns:
-            RequirementList with extracted requirements
-        """
-        try:
-            logger.info(f"Starting requirement extraction from PDF: {pdf_path}")
-
-            if markdown_dir is None:
-                markdown_dir = self.config.pdf.markdown_output_dir
-
-            markdown_path = convert_pdf_to_markdown(
-                pdf_path,
-                output_dir=markdown_dir,
-                config=self.config.pdf,
-            )
-            logger.info(f"PDF converted to markdown: {markdown_path}")
-
-            return self.extract_requirements_from_markdown(markdown_path)
-        except Exception as e:
-            logger.error(f"Error extracting requirements from PDF: {e}")
-            return RequirementList([])
+    def extract_requirements_from_pdf(self, pdf_path: str) -> RequirementList:
+        logger.info("Starting requirement extraction from PDF: %s", pdf_path)
+        semantic_document = self.document_parser.parse_pdf(pdf_path)
+        chunks = self.chunker.chunk_document(semantic_document)
+        self._persist_anchored_markdown(pdf_path, chunks)
+        return self.extract_requirements_from_chunks(chunks)
 
     def extract_requirements_from_markdown(self, md_path: str) -> RequirementList:
-        """
-        Extract requirements from a Markdown file.
+        logger.info("Starting requirement extraction from Markdown: %s", md_path)
+        docs = self.markdown_splitter.split_markdown(markdown_path=md_path)
+        chunks = self._markdown_docs_to_chunks(md_path, docs)
+        return self.extract_requirements_from_chunks(chunks)
 
-        Args:
-            md_path: Path to the Markdown file to process
-
-        Returns:
-            RequirementList with extracted requirements
-        """
-        try:
-            logger.info(f"Starting requirement extraction from Markdown: {md_path}")
-
-            requirement_schema = json.dumps(RequirementList.model_json_schema())
-            docs = self.splitter.split_markdown(markdown_path=md_path)
-
-            if self.parallel_enabled:
-                all_requirements = self.process_chunks_parallel(docs, requirement_schema)
-            else:
-                all_requirements = self.process_chunks_sequential(docs, requirement_schema)
-
-            requirements = RequirementList(all_requirements)
-            logger.info(f"Successfully extracted {len(requirements.root)} requirements")
-            return requirements
-        except Exception as e:
-            logger.error(f"Error extracting requirements from markdown: {e}")
-            raise
+    def extract_requirements_from_chunks(self, chunks: list[AnchoredMarkdownChunk]) -> RequirementList:
+        requirement_schema = RequirementExtractionResult.model_json_schema()
+        if self.parallel_enabled:
+            requirements = self.process_chunks_parallel(chunks, requirement_schema)
+        else:
+            requirements = self.process_chunks_sequential(chunks, requirement_schema)
+        deduplicated = self._deduplicate_requirements(requirements)
+        return RequirementList(deduplicated)
 
     def _collect_pdfs(self, path: Path) -> Iterable[Path]:
         if path.is_file():
             return [path]
-
         if self.config.input.recursive:
             return list(path.rglob("*.pdf"))
-
         return list(path.glob("*.pdf"))
 
     def _collect_markdown_files(self, path: Path) -> Iterable[Path]:
         if path.is_file():
             return [path]
-
-        extensions = self.config.input.file_extensions
         files: list[Path] = []
-
-        for ext in extensions:
+        for ext in self.config.input.file_extensions:
             if self.config.input.recursive:
                 files.extend(path.rglob(f"*{ext}"))
             else:
                 files.extend(path.glob(f"*{ext}"))
-
         return files
 
-    def _extract_from_pdfs(self, pdf_files: Iterable[Path]) -> list:
-        all_requirements = []
-
+    def _extract_from_pdfs(self, pdf_files: Iterable[Path]) -> list[Requirement]:
+        all_requirements: list[Requirement] = []
         for pdf_file in pdf_files:
-            requirements = self.extract_requirements_from_pdf(str(pdf_file))
+            if self._batch_mode_enabled():
+                requirements = self.extract_requirements_from_pdf_in_batches(str(pdf_file))
+            else:
+                requirements = self.extract_requirements_from_pdf(str(pdf_file))
             if requirements.root or self.config.extraction.allow_empty_results:
                 all_requirements.extend(requirements.root)
-
         return all_requirements
 
-    def _extract_from_markdown_files(self, markdown_files: Iterable[Path]) -> list:
-        all_requirements = []
-
+    def _extract_from_markdown_files(self, markdown_files: Iterable[Path]) -> list[Requirement]:
+        all_requirements: list[Requirement] = []
         for md_file in markdown_files:
             requirements = self.extract_requirements_from_markdown(str(md_file))
             if requirements.root or self.config.extraction.allow_empty_results:
                 all_requirements.extend(requirements.root)
-
         return all_requirements
 
-    def process_single_chunk(self, doc: Document, requirement_schema: str) -> RequirementList:
-        """
-        Process a single document chunk to extract requirements.
-
-        Args:
-            doc: Document chunk from langchain splitter
-            requirement_schema: JSON schema for requirements
-
-        Returns:
-            RequirementList with extracted requirements from this chunk
-        """
+    def process_single_chunk(self, chunk: AnchoredMarkdownChunk, requirement_schema: dict) -> RequirementList:
         try:
             prompt = get_prompt(
                 "requirement_extraction",
-                doc.page_content,
-                requirement_schema,
+                chunk.markdown_text,
+                json.dumps(requirement_schema),
                 include_few_shot=True,
             )
-
             response = self.ollama_client.get_structured_response(
                 prompt,
                 model_name=self.model_name,
+                response_schema=requirement_schema,
             )
-
             if response is None:
-                logger.error("Failed to get response from LLM for chunk")
+                logger.error("Failed to get response from LLM for chunk %s", chunk.chunk_id)
                 return RequirementList([])
-
-            return self.parse_llm_response(response)
-        except Exception as e:
-            logger.error(f"Error processing chunk: {e}")
+            requirements = self.parse_llm_response(response)
+            return self._apply_chunk_provenance(requirements, chunk)
+        except Exception as exc:
+            logger.error("Error processing chunk %s: %s", chunk.chunk_id, exc)
             return RequirementList([])
 
-    def process_chunks_parallel(self, docs: list[Document], requirement_schema: str) -> list:
-        """
-        Process document chunks in parallel to extract requirements.
-
-        Args:
-            docs: List of document chunks from langchain splitter
-            requirement_schema: JSON schema for requirements
-
-        Returns:
-            List of Requirement objects from all chunks
-        """
-        all_requirements = []
-
+    def process_chunks_parallel(self, chunks: list[AnchoredMarkdownChunk], requirement_schema: dict) -> list[Requirement]:
+        all_requirements: list[Requirement] = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             future_to_chunk = {
-                executor.submit(self.process_single_chunk, doc, requirement_schema): i
-                for i, doc in enumerate(docs)
+                executor.submit(self.process_single_chunk, chunk, requirement_schema): chunk
+                for chunk in chunks
             }
-
             for future in concurrent.futures.as_completed(future_to_chunk):
-                chunk_index = future_to_chunk[future]
+                chunk = future_to_chunk[future]
                 try:
                     chunk_requirements = future.result()
                     logger.info(
-                        "Processed chunk %s/%s: found %s requirements",
-                        chunk_index + 1,
-                        len(docs),
+                        "Processed chunk %s: found %s requirements",
+                        chunk.chunk_id,
                         len(chunk_requirements),
                     )
                     if chunk_requirements.root or self.config.extraction.allow_empty_results:
                         all_requirements.extend(chunk_requirements.root)
-                except Exception as e:
-                    logger.error(f"Error processing chunk {chunk_index + 1}: {e}")
-
+                except Exception as exc:
+                    logger.error("Error processing chunk %s: %s", chunk.chunk_id, exc)
         return all_requirements
 
-    def process_chunks_sequential(self, docs: list[Document], requirement_schema: str) -> list:
-        """Process document chunks sequentially to extract requirements."""
-        all_requirements = []
-
-        for index, doc in enumerate(docs):
-            chunk_requirements = self.process_single_chunk(doc, requirement_schema)
-            logger.info(
-                "Processed chunk %s/%s: found %s requirements",
-                index + 1,
-                len(docs),
-                len(chunk_requirements),
-            )
+    def process_chunks_sequential(self, chunks: list[AnchoredMarkdownChunk], requirement_schema: dict) -> list[Requirement]:
+        all_requirements: list[Requirement] = []
+        for chunk in chunks:
+            chunk_requirements = self.process_single_chunk(chunk, requirement_schema)
+            logger.info("Processed chunk %s: found %s requirements", chunk.chunk_id, len(chunk_requirements))
             if chunk_requirements.root or self.config.extraction.allow_empty_results:
                 all_requirements.extend(chunk_requirements.root)
-
         return all_requirements
 
     def parse_llm_response(self, json_response: str) -> RequirementList:
-        """
-        Parse LLM JSON response into validated requirements.
-
-        Args:
-            json_response: JSON string from LLM
-
-        Returns:
-            RequirementList object
-
-        Raises:
-            ValueError: If JSON is malformed
-        """
         try:
             data = json.loads(json_response)
-
             if isinstance(data, dict):
                 if "requirements" in data:
                     data = data["requirements"]
                 elif "requirement" in data:
                     data = [data["requirement"]]
+                elif "code" in data or "description" in data:
+                    data = [data]
                 else:
-                    if "code" in data and "description" in data:
-                        data = [data]
-                    else:
-                        data = []
-
+                    data = []
             if not isinstance(data, list):
                 data = []
+            extracted = RequirementExtractionResult.model_validate(data)
+            valid_items = [
+                item
+                for item in extracted.root
+                if item.code is not None and item.description is not None
+            ]
+            dropped_count = len(extracted.root) - len(valid_items)
+            if dropped_count:
+                logger.warning(
+                    "Dropped %s extracted item(s) because every requirement must include both code and description.",
+                    dropped_count,
+                )
+            return RequirementList(
+                [
+                    Requirement(
+                        code=item.code,
+                        description=item.description,
+                        source_segment_ids=list(item.source_segment_ids),
+                    )
+                    for item in valid_items
+                ]
+            )
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Invalid JSON from LLM: {exc}") from exc
 
-            return RequirementList(data)
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON from LLM: {e}") from e
+    def _markdown_docs_to_chunks(self, md_path: str, docs: list[Document]) -> list[AnchoredMarkdownChunk]:
+        chunks: list[AnchoredMarkdownChunk] = []
+        for index, doc in enumerate(docs, start=1):
+            section_parts = []
+            header_1 = doc.metadata.get("Header 1")
+            header_2 = doc.metadata.get("Header 2")
+            if header_1:
+                section_parts.append(header_1)
+            if header_2:
+                section_parts.append(header_2)
+            elif isinstance(doc.metadata.get("merged_from"), list):
+                merged_headers = [
+                    header
+                    for header in doc.metadata["merged_from"]
+                    if isinstance(header, str) and header and header != "UNKNOWN"
+                ]
+                if merged_headers:
+                    section_parts.append(merged_headers[0])
+            chunk_text = doc.page_content.strip()
+            chunks.append(
+                AnchoredMarkdownChunk(
+                    chunk_id=f"markdown-{index}",
+                    markdown_text=chunk_text,
+                    source_document=md_path,
+                    source_page_start=None,
+                    source_page_end=None,
+                    segment_ids=[],
+                    source_block_ids=[],
+                    source_section=" / ".join(section_parts) if section_parts else None,
+                    source_text_excerpt=chunk_text[:400],
+                    source_bbox_list=[],
+                    source_regions=[],
+                    source_segments=[],
+                )
+            )
+        return chunks
+
+    def _apply_chunk_provenance(self, requirements: RequirementList, chunk: AnchoredMarkdownChunk) -> RequirementList:
+        enriched = []
+        known_segments = {segment.segment_id: segment for segment in chunk.source_segments}
+        known_regions = {region.get("segment_id"): region for region in chunk.source_regions}
+
+        for requirement in requirements:
+            valid_segment_ids = []
+            invalid_segment_ids = []
+            for segment_id in requirement.source_segment_ids:
+                if segment_id in known_segments:
+                    if segment_id not in valid_segment_ids:
+                        valid_segment_ids.append(segment_id)
+                else:
+                    invalid_segment_ids.append(segment_id)
+
+            resolved_segments = [known_segments[segment_id] for segment_id in valid_segment_ids]
+            resolved_regions = [
+                known_regions[segment_id]
+                for segment_id in valid_segment_ids
+                if segment_id in known_regions
+            ]
+            review_status = self._derive_review_status(
+                existing_status=requirement.review_status,
+                valid_segment_ids=valid_segment_ids,
+                invalid_segment_ids=invalid_segment_ids,
+            )
+
+            if resolved_segments:
+                source_page_start = min(segment.page_number for segment in resolved_segments)
+                source_page_end = max(segment.page_number for segment in resolved_segments)
+                source_block_ids = [
+                    block_id
+                    for segment in resolved_segments
+                    for block_id in segment.source_block_ids
+                ]
+                source_section = self._resolve_section(resolved_segments) or chunk.source_section
+                source_text_excerpt = self._resolve_excerpt(resolved_segments)
+                source_bbox_list = [list(segment.bbox) for segment in resolved_segments if segment.bbox is not None]
+                source_regions = resolved_regions
+            else:
+                source_page_start = chunk.source_page_start
+                source_page_end = chunk.source_page_end
+                source_block_ids = list(chunk.source_block_ids)
+                source_section = chunk.source_section
+                source_text_excerpt = chunk.source_text_excerpt
+                source_bbox_list = list(chunk.source_bbox_list)
+                source_regions = list(chunk.source_regions)
+
+            enriched.append(
+                Requirement(
+                    code=requirement.code,
+                    description=requirement.description,
+                    source_segment_ids=valid_segment_ids,
+                    source_document=requirement.source_document or chunk.source_document,
+                    source_chunk_id=requirement.source_chunk_id or chunk.chunk_id,
+                    source_page_start=requirement.source_page_start or source_page_start,
+                    source_page_end=requirement.source_page_end or source_page_end,
+                    source_block_ids=requirement.source_block_ids or source_block_ids,
+                    source_section=requirement.source_section or source_section,
+                    source_text_excerpt=requirement.source_text_excerpt or source_text_excerpt,
+                    source_bbox_list=requirement.source_bbox_list or source_bbox_list,
+                    source_regions=requirement.source_regions or source_regions,
+                    confidence=requirement.confidence,
+                    review_status=review_status,
+                )
+            )
+        return RequirementList(enriched)
+
+    def _resolve_section(self, segments: list[SemanticSegment]) -> Optional[str]:
+        for segment in reversed(segments):
+            label = segment.section_label()
+            if label:
+                return label
+        return None
+
+    def _resolve_excerpt(self, segments: list[SemanticSegment]) -> str:
+        excerpt = "\n\n".join(segment.text_content.strip() for segment in segments if segment.text_content.strip())
+        return excerpt[:400]
+
+    def _derive_review_status(
+        self,
+        existing_status: Optional[str],
+        valid_segment_ids: list[str],
+        invalid_segment_ids: list[str],
+    ) -> Optional[str]:
+        if existing_status:
+            return existing_status
+        if invalid_segment_ids and valid_segment_ids:
+            return "partial_invalid_source_segment_ids"
+        if invalid_segment_ids and not valid_segment_ids:
+            return "invalid_source_segment_ids"
+        if not valid_segment_ids:
+            if self.config.extraction.allow_uncited_results:
+                return "uncited_source_segments"
+            return "needs_source_segment_review"
+        return None
+
+    def _deduplicate_requirements(self, requirements: list[Requirement]) -> list[Requirement]:
+        if not self.config.extraction.deduplicate_requirements:
+            return requirements
+        seen = set()
+        unique_requirements = []
+        for requirement in requirements:
+            code = requirement.code.upper() if requirement.code and self.config.extraction.normalize_codes else requirement.code
+            key = (code, requirement.description)
+            if key in seen:
+                continue
+            seen.add(key)
+            unique_requirements.append(requirement)
+        return unique_requirements
+
+    def _persist_anchored_markdown(self, pdf_path: str, chunks: list[AnchoredMarkdownChunk]) -> None:
+        if not self.config.parser.persist_anchored_markdown:
+            return
+        output_dir = Path(self.config.output.directory)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / f"{Path(pdf_path).stem}.anchored.md"
+        output_path.write_text(
+            "\n\n".join(chunk.markdown_text.strip() for chunk in chunks if chunk.markdown_text.strip()).rstrip() + "\n",
+            encoding="utf-8",
+        )
+
+    def extract_requirements_from_pdf_in_batches(self, pdf_path: str) -> RequirementList:
+        page_count = self._count_pdf_pages(pdf_path)
+        batch_windows = self._build_batch_windows(page_count)
+        pdf_stem = Path(pdf_path).stem
+        batch_root = Path(self.config.output.directory) / self.config.parser.batch_output_subdir / pdf_stem
+        batch_root.mkdir(parents=True, exist_ok=True)
+        toc_pruning_plan = self._build_batch_toc_pruning_plan(pdf_path)
+        self._persist_batch_toc_pruning_report(toc_pruning_plan)
+
+        all_requirements: list[Requirement] = []
+        anchored_parts: list[str] = []
+
+        for start_page, end_page in batch_windows:
+            slice_dir = batch_root / f"p{start_page:03d}-{end_page:03d}"
+            batch_config = self._build_batch_config(slice_dir, start_page, end_page)
+            batch_extractor = self._spawn_batch_extractor(batch_config, toc_pruning_plan=toc_pruning_plan)
+            batch_requirements = batch_extractor.extract_requirements_from_pdf(pdf_path)
+            batch_extractor.excel_writer.write(batch_requirements)
+
+            if batch_requirements.root or self.config.extraction.allow_empty_results:
+                all_requirements.extend(batch_requirements.root)
+
+            anchored_path = slice_dir / f"{pdf_stem}.anchored.md"
+            if anchored_path.exists():
+                anchored_parts.append(anchored_path.read_text(encoding="utf-8").strip())
+
+        self._persist_combined_batch_anchored_markdown(pdf_path, anchored_parts)
+        return RequirementList(self._deduplicate_requirements(all_requirements))
+
+    def _batch_mode_enabled(self) -> bool:
+        return (self.config.parser.batch_page_count or 0) > 0
+
+    def _count_pdf_pages(self, pdf_path: str) -> int:
+        try:
+            import fitz
+        except ImportError as exc:
+            raise RuntimeError("PyMuPDF is required to count PDF pages for batch mode.") from exc
+
+        with fitz.open(pdf_path) as document:
+            return document.page_count
+
+    def _build_batch_windows(self, page_count: int) -> list[tuple[int, int]]:
+        batch_page_count = self.config.parser.batch_page_count
+        if batch_page_count is None or batch_page_count <= 0:
+            raise ValueError("parser.batch_page_count must be a positive integer when batch mode is enabled.")
+
+        start_page = max(self.config.parser.page_start or 1, 1)
+        end_page = self.config.parser.page_end or page_count
+        end_page = min(end_page, page_count)
+
+        if self.config.parser.max_pages is not None:
+            end_page = min(end_page, start_page + max(self.config.parser.max_pages - 1, 0))
+
+        if start_page > page_count:
+            raise ValueError(
+                f"Configured parser.page_start={start_page} is beyond the document page count ({page_count})."
+            )
+
+        windows: list[tuple[int, int]] = []
+        current = start_page
+        while current <= end_page:
+            window_end = min(current + batch_page_count - 1, end_page)
+            windows.append((current, window_end))
+            current = window_end + 1
+        return windows
+
+    def _build_batch_config(self, slice_dir: Path, start_page: int, end_page: int) -> AppConfig:
+        batch_config = copy.deepcopy(self.config)
+        batch_config.output.directory = str(slice_dir)
+        batch_config.parser.page_start = start_page
+        batch_config.parser.page_end = end_page
+        batch_config.parser.max_pages = None
+        batch_config.parser.batch_page_count = None
+        return batch_config
+
+    def _spawn_batch_extractor(
+        self,
+        batch_config: AppConfig,
+        *,
+        toc_pruning_plan: Optional[dict] = None,
+    ) -> "RequirementExtractor":
+        return RequirementExtractor(
+            config=batch_config,
+            ollama_client=self.ollama_client,
+            toc_pruning_plan=toc_pruning_plan,
+        )
+
+    def _persist_combined_batch_anchored_markdown(self, pdf_path: str, anchored_parts: list[str]) -> None:
+        if not self.config.parser.persist_anchored_markdown or not anchored_parts:
+            return
+        output_dir = Path(self.config.output.directory)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / f"{Path(pdf_path).stem}.anchored.md"
+        output_path.write_text(
+            "\n\n".join(part for part in anchored_parts if part).rstrip() + "\n",
+            encoding="utf-8",
+        )
+
+    def _build_batch_toc_pruning_plan(self, pdf_path: str) -> Optional[dict]:
+        if self.config.parser.toc_section_pruning_mode == "off":
+            return None
+        build_plan = getattr(self.document_parser, "build_toc_pruning_plan", None)
+        if not callable(build_plan):
+            return None
+        try:
+            return build_plan(pdf_path)
+        except Exception as exc:
+            logger.warning("Failed to build TOC pruning plan for %s: %s", pdf_path, exc)
+            return None
+
+    def _persist_batch_toc_pruning_report(self, toc_pruning_plan: Optional[dict]) -> None:
+        if not toc_pruning_plan:
+            return
+        output_dir = Path(self.config.output.directory)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / self.config.parser.toc_pruning_report_filename
+        output_path.write_text(json.dumps(toc_pruning_plan, indent=2), encoding="utf-8")
 
 
-def extract_requirements_from_pdf(
-    pdf_path: str,
-    config: AppConfig,
-    markdown_dir: Optional[str] = None,
-) -> RequirementList:
-    """Convenience function to extract requirements from a PDF file."""
+def extract_requirements_from_pdf(pdf_path: str, config: AppConfig) -> RequirementList:
     extractor = RequirementExtractor(config=config)
-    return extractor.extract_requirements_from_pdf(pdf_path, markdown_dir)
-
-
-def extract_requirements_from_markdown(md_path: str, config: AppConfig) -> RequirementList:
-    """Convenience function to extract requirements from a Markdown file."""
-    extractor = RequirementExtractor(config=config)
-    return extractor.extract_requirements_from_markdown(md_path)
+    return extractor.extract_requirements_from_pdf(pdf_path)

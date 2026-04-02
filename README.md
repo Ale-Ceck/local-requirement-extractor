@@ -1,72 +1,134 @@
 # Local Requirement Extractor
 
-Extract requirement codes and descriptions from technical documents using a local LLM (Ollama), then export results to Excel.
+Extract requirement codes and descriptions from technical PDFs with local OCR and a local text model, then export the results with traceability metadata.
 
-## What this does
-- Ingests PDFs or Markdown files
-- Converts PDF to Markdown
-- Splits Markdown into LLM-sized chunks
-- Calls a local Ollama model to extract requirement entries as JSON
-- Writes results to an Excel file
+## Supported Workflow
 
-This is an offline-first pipeline designed for local processing (no hosted LLM required).
+The only supported entrypoint is `src/cli/main.py`.
 
-## Quick start
-1. Create and activate a virtual environment
-2. Install Python dependencies
-3. Ensure Ollama is running locally and a model is available
-4. Edit `config.yaml`
-5. Run the CLI
+The canonical PDF path is:
+
+`PDF -> Paddle semantic segments -> anchored markdown -> Ollama extraction with cited segment IDs -> provenance-enriched outputs`
+
+Current support boundaries:
+
+- `src/cli/main.py` is the supported CLI
+- `src/pdf_processing/paddleocr_parser.py` is the canonical PDF parser
+- Markdown input is still supported as a compatibility path
+- standalone scripts under `src/cli/` such as `converter.py`, `extractor.py`, `tester.py`, and `vision.py` are experimental helpers and not part of the supported workflow
+
+## Runtime Requirements
+
+- Python `3.10+`
+- Apple Silicon macOS for the intended local development/runtime path
+- Ollama running locally at `http://localhost:11434`
+- a locally available Ollama model such as `llama3:latest`
+- a running PaddleOCR-VL VLM inference service
+
+The current local development virtualenv is Python `3.13.7`.
+
+The repo is aligned to the Apple Silicon PaddleOCR-VL service-backed path described in the official PaddleOCR guide:
+
+https://www.paddleocr.ai/main/en/version3.x/pipeline_usage/PaddleOCR-VL-Apple-Silicon.html#1-environment-preparation
+
+## Quickstart
+
+1. Create a Python `3.10+` virtual environment.
+2. Install `paddlepaddle` and `paddleocr[doc-parser]` for the Apple Silicon path.
+3. Install the repo dependencies.
+4. Ensure the VLM service is reachable.
+5. Ensure Ollama is running locally with the configured model.
+6. Review `config.yaml`.
+7. Run the CLI.
 
 Example:
 
 ```bash
-python src/cli/main.py --config config.yaml
+python src/cli/main.py extract --config config.yaml
 ```
 
-## Requirements
-- Python 3.10+ (tested locally with newer versions)
-- Ollama running at `http://localhost:11434`
-- An Ollama model available (e.g., `llama3:latest`)
+Useful service commands:
 
-## Configuration
-The pipeline is driven by `config.yaml`. Key settings:
+```bash
+python src/cli/main.py check-vlm-service --config config.yaml
+python src/cli/main.py start-vlm-service --config config.yaml
+```
 
-- `input.path`: PDF file or directory
-- `input.mode`: `pdf` or `markdown`
-- `input.recursive`: scan directories recursively
-- `output.directory`: where the Excel output is written
-- `pdf.markdown_output_dir`: where intermediate Markdown goes
-- `chunking`: header-based chunking and merge behavior
-- `extraction.model_name`: Ollama model name
-- `parallel`: enable/disable threaded chunk processing
-- `ollama`: host/timeout and sampling settings
+## Key Configuration
 
-See `config/schema.py` for all fields and defaults.
+The pipeline is driven by `config.yaml`.
 
-## How it works
-1. **PDF to Markdown**: PDFs are converted to Markdown using `pymupdf4llm`.
-2. **Chunking**: Markdown is split by headers and merged to fit LLM context windows.
-3. **LLM extraction**: Each chunk is sent to Ollama with a strict JSON schema.
-4. **Aggregation**: Results are merged into a single list.
-5. **Export**: An Excel file is written with requirement code and description columns.
+Important sections:
 
-## Project layout (src)
-- `src/cli/`: CLI entrypoints and helper scripts
-- `src/requirement_extraction/`: main extraction pipeline and Excel writer
-- `src/llm_integration/`: Ollama client and prompt templates
-- `src/pdf_processing/`: PDF to Markdown conversion
-- `src/utils/`: logging, file utilities, markdown splitter
-- `src/data_models/`: Pydantic models for requirements
+- `input`: input path, mode, recursion
+- `output`: output directory and review-artifact switches
+- `parser`: PaddleOCR-VL runtime, pruning, and PDF windowing settings
+- `chunking`: chunk-size behavior for extraction
+- `extraction`: model name, deduplication, and uncited-result policy
+- `ollama`: local model host and timeout
 
-## Notes and caveats
-- The main entrypoint is `src/cli/main.py`. Other scripts in `src/cli/` are experimental utilities.
-- Output is a simple Excel file with two columns: requirement code and description.
-- The LLM is instructed to return strict JSON; malformed responses are rejected.
+Important parser fields:
 
-## Troubleshooting
-- If Ollama is not running or the model is missing, requests will fail. Start Ollama and pull a model before running the CLI.
-- If no requirements are found, the output Excel will still be created (with headers only).
+- `parser.backend`: parser backend, currently `paddleocr_vl`
+- `parser.vlm_backend`: VLM backend used by PaddleOCR-VL
+- `parser.vlm_server_url`: VLM inference service base URL
+- `parser.vlm_api_model_name`: model name exposed by the VLM service
+- `parser.ignored_paddle_labels`: labels excluded from the extraction input
+- `parser.exclude_front_matter`: coarse front-matter exclusion
+- `parser.toc_section_pruning_mode`: `off`, `audit`, or `enforce`
+- `parser.toc_excluded_section_titles`: normalized section-title rules for TOC pruning
+- `parser.persist_anchored_markdown`: persist the exact LLM-facing PDF input
+- `parser.batch_page_count`: split long PDFs into bounded page windows
+- `parser.batch_output_subdir`: per-window output directory name
+- `parser.page_start` / `parser.page_end` / `parser.max_pages`: bounded PDF parsing controls
 
-## License
-TBD
+The default parser settings are aligned for the configured Apple Silicon service-backed path:
+
+- `parser.backend: paddleocr_vl`
+- `parser.vlm_backend: mlx-vlm-server`
+- `parser.vlm_server_url: http://localhost:8111/`
+- `parser.vlm_api_model_name: mlx-community/PaddleOCR-VL-1.5-bf16`
+- `parser.vlm_server_command: mlx_vlm.server --port 8111`
+
+## Outputs
+
+Each run writes:
+
+- `requirements.xlsx`: tabular requirement list
+- `requirements.review.json`: full enriched requirement objects with provenance
+- `requirements.review.md`: compact human-readable review report
+- `requirements.review.html`: static HTML review artifact with page-region overlays
+- `<input-stem>.anchored.md`: exact anchored markdown sent to the extractor for PDF inputs
+
+PDF runs also write:
+
+- `ocr-input.pdf`: the exact PDF passed to PaddleOCR-VL
+- `toc-pruning-report.json`: TOC detection and pruning report
+
+When page images are available, the pipeline persists both:
+
+- `page-images/page-001.png` ...: clean rasterized input-page backgrounds used by the HTML review artifact
+- `ocr-pages/page-001.png` ...: PaddleOCR-VL native visual outputs with labels and bounding boxes for OCR inspection
+
+When `parser.batch_page_count` is enabled, the run produces:
+
+- merged document-level outputs in the root output directory
+- full per-window outputs under `batches/<pdf-stem>/p001-005/`-style directories
+
+Each batch directory contains the same artifact set for that window.
+
+## Code Layout
+
+- `src/cli/`: supported entrypoint plus experimental helpers
+- `src/pdf_processing/`: parser abstraction, parser factory, Paddle parser, and compatibility parser
+- `src/requirement_extraction/`: chunking, extraction orchestration, and export writers
+- `src/llm_integration/`: Ollama client and prompts
+- `src/data_models/`: extraction and enriched requirement models
+- `config/`: config schema and loader
+- `tests/unit/`: architecture-aligned tests
+
+## Notes
+
+- TOC-based section pruning is intentionally coarse and only removes high-confidence non-requirement sections.
+- The HTML artifact is static and review-oriented, not an interactive PDF viewer.
+- Page-image generation currently exists to support provenance and review artifacts, not as a separate export workflow.

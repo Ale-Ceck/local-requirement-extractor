@@ -14,11 +14,19 @@ sys.path.insert(0, str(repo_root))
 
 from config.loader import load_config
 from src.requirement_extraction.requirement_extractor import RequirementExtractor
+from src.vlm_service import VLMServiceManager
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Local Requirement Extractor"
+    )
+    parser.add_argument(
+        "command",
+        nargs="?",
+        default="extract",
+        choices=["extract", "check-vlm-service", "start-vlm-service"],
+        help="Command to execute",
     )
     parser.add_argument(
         "--config",
@@ -26,19 +34,24 @@ def parse_args() -> argparse.Namespace:
         default=Path("config.yaml"),
         help="Path to configuration file",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def main() -> None:
     args = parse_args()
 
-    # 1. Load configuration (ONCE)
     config = load_config(args.config)
+    vlm_service = VLMServiceManager(config.parser)
 
-    # 2. Assemble application
+    if args.command == "check-vlm-service":
+        vlm_service.ensure_healthy()
+        print(f"VLM service reachable at {config.parser.vlm_server_url}")
+        return
+
+    if args.command == "start-vlm-service":
+        raise SystemExit(vlm_service.start_server())
+
     extractor = RequirementExtractor(config)
-
-    # 3. Run
     extractor.run()
 
 

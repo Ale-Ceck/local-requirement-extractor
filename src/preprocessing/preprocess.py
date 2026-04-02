@@ -109,7 +109,7 @@ def main():
     """
     #input_filename = Path("data/test/examples.md")
     #output_filename = Path("data/test/cleaned_requirements.md")
-    input_dir = Path("data/docling_markdown_output")
+    input_dir = Path("data/markdown_output")
     output_dir = Path("data/cleaned_markdown")
 
     if not os.path.exists(input_dir):
