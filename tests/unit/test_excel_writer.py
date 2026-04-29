@@ -139,6 +139,54 @@ def test_excel_writer_creates_companion_review_artifact():
     assert "First Region: page 5" in markdown
     assert "<svg" in html
     assert "Page 5" in html
-    assert "polygon" in html
+    assert "<rect" in html
     assert f"data:image/png;base64,{base64.b64encode(raw_bytes).decode('ascii')}" in html
     assert base64.b64encode(ocr_bytes).decode("ascii") not in html
+
+
+def test_html_review_writer_clamps_bboxes_and_falls_back_when_polygon_is_invalid():
+    output_config = OutputConfig(
+        directory="unused",
+        include_metadata=True,
+        write_review_artifact=False,
+        write_review_markdown=False,
+        write_review_html=True,
+    )
+    requirements = RequirementList(
+        [
+            Requirement(
+                code="REQ-020",
+                description="System shall render sane geometry.",
+                source_segment_ids=["seg-20"],
+                source_document="spec.pdf",
+                source_page_start=1,
+                source_page_end=1,
+                source_regions=[
+                    {
+                        "segment_id": "seg-20",
+                        "page_number": 1,
+                        "page_width": 596.0,
+                        "page_height": 842.0,
+                        "block_id": "b-20",
+                        "block_type": "text",
+                        "paddle_label": "text",
+                        "bbox": [-10.0, 20.0, 700.0, 900.0],
+                        "polygon_points": [[-1.0, 20.0], [700.0, 20.0], [700.0, 50.0], [-1.0, 50.0]],
+                    }
+                ],
+            )
+        ]
+    )
+
+    with TemporaryDirectory() as temp_dir:
+        page_image_path = Path(temp_dir) / "page-1.png"
+        page_image_path.write_bytes(b"page")
+        requirements[0].source_regions[0]["page_image_path"] = str(page_image_path)
+        html_path = Path(temp_dir) / "requirements.review.html"
+        writer = ExcelWriter(output_config)
+
+        writer.review_html_writer.write(requirements, str(html_path))
+        html = html_path.read_text(encoding="utf-8")
+
+    assert '<rect x="0.0" y="20.0" width="596.0" height="822.0"' in html
+    assert "polygon" not in html

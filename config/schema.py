@@ -7,7 +7,7 @@ from typing import List, Optional, Tuple
 @dataclass
 class InputConfig:
     path: str
-    mode: str = "pdf"  # pdf | markdown
+    mode: str = "pdf"  # pdf | markdown | chunk_cache
     recursive: bool = True
     file_extensions: List[str] = field(default_factory=lambda: [".pdf"])
 

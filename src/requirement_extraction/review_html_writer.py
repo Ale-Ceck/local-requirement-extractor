@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import math
 import mimetypes
 from collections import defaultdict
 from html import escape
@@ -244,26 +245,81 @@ def _render_single_page_view(page_number: int, regions: Iterable[dict]) -> str:
 
 
 def _render_region_shape(region: dict) -> str:
-    polygon_points = region.get("polygon_points")
-    if isinstance(polygon_points, list) and polygon_points:
-        normalized_points = []
-        for point in polygon_points:
-            if isinstance(point, list) and len(point) == 2:
-                normalized_points.append(f"{float(point[0])},{float(point[1])}")
-        if normalized_points:
-            return (
-                f'<polygon points="{" ".join(normalized_points)}" '
-                'fill="var(--highlight-fill)" stroke="var(--highlight-stroke)" stroke-width="2" />'
-            )
+    page_width = float(region.get("page_width") or 0.0)
+    page_height = float(region.get("page_height") or 0.0)
 
-    bbox = region.get("bbox")
-    if isinstance(bbox, list) and len(bbox) == 4:
-        x1, y1, x2, y2 = (float(value) for value in bbox)
+    bbox = _sanitize_bbox(region.get("bbox"), page_width, page_height)
+    if bbox is not None:
+        x1, y1, x2, y2 = bbox
         return (
             f'<rect x="{x1}" y="{y1}" width="{max(x2 - x1, 1.0)}" height="{max(y2 - y1, 1.0)}" '
             'fill="var(--highlight-fill)" stroke="var(--highlight-stroke)" stroke-width="2" />'
         )
+
+    polygon_points = _sanitize_polygon_points(region.get("polygon_points"), page_width, page_height)
+    if polygon_points:
+        return (
+            f'<polygon points="{" ".join(f"{x},{y}" for x, y in polygon_points)}" '
+            'fill="var(--highlight-fill)" stroke="var(--highlight-stroke)" stroke-width="2" />'
+        )
     return ""
+
+
+def _sanitize_bbox(
+    bbox: object,
+    page_width: float,
+    page_height: float,
+) -> Optional[tuple[float, float, float, float]]:
+    if not isinstance(bbox, list) or len(bbox) != 4:
+        return None
+    try:
+        x1, y1, x2, y2 = (float(value) for value in bbox)
+    except (TypeError, ValueError):
+        return None
+    if not _is_finite_number(x1, y1, x2, y2):
+        return None
+    if page_width > 0.0:
+        x1 = min(max(x1, 0.0), page_width)
+        x2 = min(max(x2, 0.0), page_width)
+    if page_height > 0.0:
+        y1 = min(max(y1, 0.0), page_height)
+        y2 = min(max(y2, 0.0), page_height)
+    if x2 <= x1 or y2 <= y1:
+        return None
+    return (x1, y1, x2, y2)
+
+
+def _sanitize_polygon_points(
+    polygon_points: object,
+    page_width: float,
+    page_height: float,
+) -> list[tuple[float, float]]:
+    if not isinstance(polygon_points, list) or len(polygon_points) < 3:
+        return []
+
+    normalized: list[tuple[float, float]] = []
+    for point in polygon_points:
+        if not isinstance(point, list) or len(point) != 2:
+            return []
+        try:
+            x = float(point[0])
+            y = float(point[1])
+        except (TypeError, ValueError):
+            return []
+        if not _is_finite_number(x, y):
+            return []
+        if x < 0.0 or y < 0.0:
+            return []
+        if page_width > 0.0 and x > page_width:
+            return []
+        if page_height > 0.0 and y > page_height:
+            return []
+        normalized.append((x, y))
+    return normalized
+
+
+def _is_finite_number(*values: float) -> bool:
+    return all(math.isfinite(value) for value in values)
 
 
 def _resolve_page_image_href(regions: Iterable[dict]) -> Optional[str]:

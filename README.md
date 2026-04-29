@@ -47,6 +47,13 @@ Example:
 python src/cli/main.py extract --config config.yaml
 ```
 
+Two-stage replay workflow:
+
+```bash
+python src/cli/main.py prepare-pdf --config config.yaml
+python src/cli/main.py extract --config profiles/replay-extract.yaml
+```
+
 Useful service commands:
 
 ```bash
@@ -82,6 +89,12 @@ Important parser fields:
 - `parser.batch_output_subdir`: per-window output directory name
 - `parser.page_start` / `parser.page_end` / `parser.max_pages`: bounded PDF parsing controls
 
+Important input modes:
+
+- `input.mode: pdf`: full OCR + chunking + extraction pipeline
+- `input.mode: chunk_cache`: extraction-only replay from `<input-stem>.chunks.json`
+- `input.mode: markdown`: compatibility path for direct Markdown input
+
 The default parser settings are aligned for the configured Apple Silicon service-backed path:
 
 - `parser.backend: paddleocr_vl`
@@ -99,6 +112,8 @@ Each run writes:
 - `requirements.review.md`: compact human-readable review report
 - `requirements.review.html`: static HTML review artifact with page-region overlays
 - `<input-stem>.anchored.md`: exact anchored markdown sent to the extractor for PDF inputs
+- `<input-stem>.chunks.json`: serialized extraction-ready chunk cache for replay runs
+- `run-manifest.json`: effective run settings, input mode, model, batch windows, and artifact paths
 
 PDF runs also write:
 
@@ -114,8 +129,27 @@ When `parser.batch_page_count` is enabled, the run produces:
 
 - merged document-level outputs in the root output directory
 - full per-window outputs under `batches/<pdf-stem>/p001-005/`-style directories
+- per-window chunk caches in those slice directories plus a merged root `<input-stem>.chunks.json`
 
 Each batch directory contains the same artifact set for that window.
+
+## Experiment Profiles
+
+The repo ships three baseline profiles under `profiles/`:
+
+- `local-stable.yaml`: recommended local full run with batch mode and TOC pruning enforced
+- `local-debug.yaml`: sequential debug profile with verbose logging
+- `replay-extract.yaml`: extraction-only replay from a previously prepared chunk cache
+
+The main experiment levers are:
+
+- `extraction.model_name`
+- `parallel.enabled`
+- `parallel.max_workers`
+- `chunking.max_chunk_chars`
+- `parser.batch_page_count`
+- `parser.toc_section_pruning_mode`
+- `parser.page_start` / `parser.page_end` / `parser.max_pages`
 
 ## Code Layout
 

@@ -16,6 +16,7 @@ from config.schema import (
 )
 from src.data_models.requirement import RequirementList
 from src.pdf_processing.models import SemanticDocument, SemanticPage, SemanticSegment
+from src.requirement_extraction.chunk_cache import load_chunk_cache
 from src.requirement_extraction.document_chunker import SemanticDocumentChunker
 from src.requirement_extraction.requirement_extractor import RequirementExtractor
 
@@ -66,6 +67,11 @@ class WindowedFakeParser:
             if start_page <= page.page_number <= end_page
         ]
         return SemanticDocument(source_document=pdf_path, pages=selected_pages)
+
+
+class ExplodingParser:
+    def parse_pdf(self, pdf_path):
+        raise AssertionError(f"parse_pdf should not be called during chunk-cache replay: {pdf_path}")
 
 
 def build_config(output_dir):
@@ -301,6 +307,220 @@ def test_extract_requirements_from_markdown_uses_chunk_metadata():
     assert requirement.source_document == str(markdown_path)
 
 
+def test_prepare_pdf_command_writes_chunk_cache_and_manifest_without_calling_ollama():
+    semantic_document = SemanticDocument(
+        source_document="sample.pdf",
+        pages=[
+            SemanticPage(
+                page=0,
+                width=1000,
+                height=1400,
+                segments=[
+                    _segment(
+                        "seg-1",
+                        page=0,
+                        text_content="1. Requirements",
+                        text_markdown="# 1. Requirements",
+                        heading_level=1,
+                        paddle_label="doc_title",
+                        section_path=["1. Requirements"],
+                    ),
+                    _segment(
+                        "seg-2",
+                        page=0,
+                        text_content="REQ-001 First requirement.",
+                        text_markdown="REQ-001 First requirement.",
+                        section_path=["1. Requirements"],
+                        bbox=(100.0, 200.0, 320.0, 230.0),
+                    ),
+                ],
+            )
+        ],
+    )
+
+    fake_parser = FakeParser(semantic_document)
+    fake_client = FakeOllamaClient([])
+
+    with TemporaryDirectory() as temp_dir:
+        input_pdf_path = Path(temp_dir) / "sample.pdf"
+        input_pdf_path.write_bytes(b"%PDF-1.4\n% fixture\n")
+
+        config = build_config(temp_dir)
+        config.input.path = str(input_pdf_path)
+        extractor = RequirementExtractor(
+            config=config,
+            ollama_client=fake_client,
+            document_parser=fake_parser,
+            chunker=SemanticDocumentChunker(ChunkingConfig(max_chunk_chars=400)),
+            command_name="prepare-pdf",
+        )
+
+        extractor.run()
+
+        chunk_cache_path = Path(temp_dir) / "sample.chunks.json"
+        manifest_path = Path(temp_dir) / "run-manifest.json"
+        assert chunk_cache_path.exists()
+        assert (Path(temp_dir) / "sample.anchored.md").exists()
+        assert manifest_path.exists()
+        assert not (Path(temp_dir) / "requirements.xlsx").exists()
+
+        cached_chunks = load_chunk_cache(chunk_cache_path)
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert fake_client.prompts == []
+    assert fake_parser.pdf_paths == [str(input_pdf_path)]
+    assert len(cached_chunks) == 1
+    assert cached_chunks[0].segment_ids == ["seg-1", "seg-2"]
+    assert manifest["command"] == "prepare-pdf"
+    assert manifest["execution"]["used_live_ocr"] is True
+    assert manifest["execution"]["used_chunk_cache_replay"] is False
+    assert manifest["artifacts"]["pdf_sources"][0]["chunk_cache"].endswith("sample.chunks.json")
+
+
+def test_run_can_replay_extraction_from_chunk_cache_without_parser():
+    semantic_document = SemanticDocument(
+        source_document="sample.pdf",
+        pages=[
+            SemanticPage(
+                page=0,
+                width=1000,
+                height=1400,
+                segments=[
+                    _segment(
+                        "seg-1",
+                        page=0,
+                        text_content="REQ-001 First requirement.",
+                        text_markdown="REQ-001 First requirement.",
+                        bbox=(100.0, 200.0, 320.0, 230.0),
+                    ),
+                ],
+            )
+        ],
+    )
+
+    with TemporaryDirectory() as temp_dir:
+        prepare_output_dir = Path(temp_dir) / "prepared"
+        replay_output_dir = Path(temp_dir) / "replay"
+        input_pdf_path = Path(temp_dir) / "sample.pdf"
+        input_pdf_path.write_bytes(b"%PDF-1.4\n% fixture\n")
+
+        prepare_config = build_config(str(prepare_output_dir))
+        prepare_config.input.path = str(input_pdf_path)
+        prepare_extractor = RequirementExtractor(
+            config=prepare_config,
+            ollama_client=FakeOllamaClient([]),
+            document_parser=FakeParser(semantic_document),
+            chunker=SemanticDocumentChunker(ChunkingConfig(max_chunk_chars=400)),
+            command_name="prepare-pdf",
+        )
+        prepare_extractor.run()
+
+        chunk_cache_path = prepare_output_dir / "sample.chunks.json"
+        replay_config = build_config(str(replay_output_dir))
+        replay_config.input.mode = "chunk_cache"
+        replay_config.input.path = str(chunk_cache_path)
+        replay_client = FakeOllamaClient(
+            [
+                json.dumps(
+                    [
+                        {
+                            "code": "REQ-001",
+                            "description": "First requirement.",
+                            "source_segment_ids": ["seg-1"],
+                        }
+                    ]
+                )
+            ]
+        )
+        replay_extractor = RequirementExtractor(
+            config=replay_config,
+            ollama_client=replay_client,
+            document_parser=ExplodingParser(),
+        )
+
+        replay_extractor.run()
+
+        manifest = json.loads((replay_output_dir / "run-manifest.json").read_text(encoding="utf-8"))
+        requirements_exists = (replay_output_dir / "requirements.xlsx").exists()
+        review_exists = (replay_output_dir / "requirements.review.json").exists()
+
+    assert requirements_exists is True
+    assert review_exists is True
+    assert manifest["command"] == "extract"
+    assert manifest["input"]["mode"] == "chunk_cache"
+    assert manifest["execution"]["used_live_ocr"] is False
+    assert manifest["execution"]["used_chunk_cache_replay"] is True
+
+
+def test_extract_requirements_from_chunks_sorts_results_by_document_position():
+    fake_client = FakeOllamaClient(
+        [
+            json.dumps(
+                [
+                    {
+                        "code": "REQ-020",
+                        "description": "Later requirement.",
+                        "source_segment_ids": ["seg-20"],
+                    }
+                ]
+            ),
+            json.dumps(
+                [
+                    {
+                        "code": "REQ-010",
+                        "description": "Earlier requirement.",
+                        "source_segment_ids": ["seg-10"],
+                    }
+                ]
+            ),
+        ]
+    )
+
+    with TemporaryDirectory() as temp_dir:
+        extractor = RequirementExtractor(
+            config=build_config(temp_dir),
+            ollama_client=fake_client,
+        )
+
+        later_segment = _segment(
+            "seg-20",
+            page=2,
+            text_content="REQ-020 Later requirement.",
+            text_markdown="REQ-020 Later requirement.",
+            bbox=(100.0, 300.0, 320.0, 330.0),
+        )
+        earlier_segment = _segment(
+            "seg-10",
+            page=1,
+            text_content="REQ-010 Earlier requirement.",
+            text_markdown="REQ-010 Earlier requirement.",
+            bbox=(100.0, 200.0, 320.0, 230.0),
+        )
+
+        chunks = [
+            SemanticDocumentChunker(ChunkingConfig(max_chunk_chars=400))._build_chunk(
+                "sample.pdf",
+                [],
+                [later_segment],
+                {
+                    2: SemanticPage(page=2, width=1000, height=1400, segments=[later_segment]),
+                },
+            ),
+            SemanticDocumentChunker(ChunkingConfig(max_chunk_chars=400))._build_chunk(
+                "sample.pdf",
+                [],
+                [earlier_segment],
+                {
+                    1: SemanticPage(page=1, width=1000, height=1400, segments=[earlier_segment]),
+                },
+            ),
+        ]
+
+        requirements = extractor.extract_requirements_from_chunks(chunks)
+
+    assert [requirement.code for requirement in requirements] == ["REQ-010", "REQ-020"]
+
+
 def test_run_in_pdf_batch_mode_writes_root_and_per_slice_outputs():
     semantic_document = SemanticDocument(
         source_document="sample.pdf",
@@ -432,6 +652,8 @@ def test_run_in_pdf_batch_mode_writes_root_and_per_slice_outputs():
         assert (root_output_dir / "requirements.review.md").exists()
         assert (root_output_dir / "requirements.review.html").exists()
         assert (root_output_dir / "sample.anchored.md").exists()
+        assert (root_output_dir / "sample.chunks.json").exists()
+        assert (root_output_dir / "run-manifest.json").exists()
 
         batch_root = root_output_dir / "batch-runs" / "sample"
         first_slice = batch_root / "p001-002"
@@ -443,6 +665,7 @@ def test_run_in_pdf_batch_mode_writes_root_and_per_slice_outputs():
             assert (slice_dir / "requirements.review.md").exists()
             assert (slice_dir / "requirements.review.html").exists()
             assert (slice_dir / "sample.anchored.md").exists()
+            assert (slice_dir / "sample.chunks.json").exists()
 
 
 def test_batch_mode_builds_toc_plan_once_and_persists_root_report():

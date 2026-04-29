@@ -1,6 +1,7 @@
 import concurrent.futures
 import copy
 import json
+from dataclasses import asdict
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -12,6 +13,7 @@ from src.llm_integration.ollama_client import OllamaClient
 from src.llm_integration.prompt_templates import get_prompt
 from src.pdf_processing.factory import create_document_parser
 from src.pdf_processing.models import SemanticSegment
+from src.requirement_extraction.chunk_cache import load_chunk_cache, write_chunk_cache
 from src.requirement_extraction.document_chunker import AnchoredMarkdownChunk, SemanticDocumentChunker
 from src.requirement_extraction.excel_writer import ExcelWriter
 from src.utils.logging_config import setup_logger
@@ -32,11 +34,15 @@ class RequirementExtractor:
         markdown_splitter: Optional[MarkdownSplitter] = None,
         chunker: Optional[SemanticDocumentChunker] = None,
         excel_writer: Optional[ExcelWriter] = None,
+        command_name: str = "extract",
+        write_run_manifest: bool = True,
     ) -> None:
         self.config = config
         self.model_name = config.extraction.model_name
         self.max_workers = max(1, config.parallel.max_workers)
         self.parallel_enabled = config.parallel.enabled
+        self.command_name = command_name
+        self.write_run_manifest = write_run_manifest
         self.ollama_client = ollama_client or OllamaClient(config.ollama)
         self.toc_pruning_plan = toc_pruning_plan
         self.document_parser = document_parser or create_document_parser(config, toc_pruning_plan=toc_pruning_plan)
@@ -46,19 +52,81 @@ class RequirementExtractor:
 
     def run(self) -> None:
         input_path = Path(self.config.input.path)
+        if self.command_name == "prepare-pdf":
+            if self.config.input.mode != "pdf":
+                raise ValueError("prepare-pdf only supports input.mode=pdf.")
+            source_files = self._collect_pdfs(input_path)
+            self._prepare_pdfs(source_files)
+            if self.write_run_manifest:
+                self._write_run_manifest(
+                    pdf_sources=source_files,
+                    used_live_ocr=True,
+                    used_chunk_cache_replay=False,
+                )
+            return
+
         if self.config.input.mode == "pdf":
             source_files = self._collect_pdfs(input_path)
             all_requirements = self._extract_from_pdfs(source_files)
-        else:
+            requirement_list = RequirementList(self._finalize_requirements(all_requirements))
+            self.excel_writer.write(requirement_list)
+            if self.write_run_manifest:
+                self._write_run_manifest(
+                    pdf_sources=source_files,
+                    used_live_ocr=True,
+                    used_chunk_cache_replay=False,
+                )
+            return
+
+        if self.config.input.mode == "chunk_cache":
+            cache_files = self._collect_chunk_cache_files(input_path)
+            all_requirements = self._extract_from_chunk_cache_files(cache_files)
+            requirement_list = RequirementList(self._finalize_requirements(all_requirements))
+            self.excel_writer.write(requirement_list)
+            if self.write_run_manifest:
+                self._write_run_manifest(
+                    chunk_cache_sources=cache_files,
+                    used_live_ocr=False,
+                    used_chunk_cache_replay=True,
+                )
+            return
+
+        if self.config.input.mode == "markdown":
             source_files = self._collect_markdown_files(input_path)
             all_requirements = self._extract_from_markdown_files(source_files)
-        self.excel_writer.write(RequirementList(all_requirements))
+            requirement_list = RequirementList(self._finalize_requirements(all_requirements))
+            self.excel_writer.write(requirement_list)
+            if self.write_run_manifest:
+                self._write_run_manifest(
+                    markdown_sources=source_files,
+                    used_live_ocr=False,
+                    used_chunk_cache_replay=False,
+                )
+            return
 
-    def extract_requirements_from_pdf(self, pdf_path: str) -> RequirementList:
-        logger.info("Starting requirement extraction from PDF: %s", pdf_path)
+        raise ValueError(f"Unsupported input mode: {self.config.input.mode}")
+
+    def prepare_pdf_chunks(self, pdf_path: str) -> list[AnchoredMarkdownChunk]:
+        logger.info("Preparing PDF without extraction: %s", pdf_path)
         semantic_document = self.document_parser.parse_pdf(pdf_path)
         chunks = self.chunker.chunk_document(semantic_document)
         self._persist_anchored_markdown(pdf_path, chunks)
+        self._persist_chunk_cache(pdf_path, chunks)
+        return chunks
+
+    def prepare_pdf(self, pdf_path: str) -> list[AnchoredMarkdownChunk]:
+        if self._batch_mode_enabled():
+            return self.prepare_pdf_in_batches(pdf_path)
+        return self.prepare_pdf_chunks(pdf_path)
+
+    def extract_requirements_from_pdf(self, pdf_path: str) -> RequirementList:
+        logger.info("Starting requirement extraction from PDF: %s", pdf_path)
+        chunks = self.prepare_pdf_chunks(pdf_path)
+        return self.extract_requirements_from_chunks(chunks)
+
+    def extract_requirements_from_chunk_cache(self, cache_path: str) -> RequirementList:
+        logger.info("Starting requirement extraction from chunk cache: %s", cache_path)
+        chunks = load_chunk_cache(cache_path)
         return self.extract_requirements_from_chunks(chunks)
 
     def extract_requirements_from_markdown(self, md_path: str) -> RequirementList:
@@ -73,8 +141,7 @@ class RequirementExtractor:
             requirements = self.process_chunks_parallel(chunks, requirement_schema)
         else:
             requirements = self.process_chunks_sequential(chunks, requirement_schema)
-        deduplicated = self._deduplicate_requirements(requirements)
-        return RequirementList(deduplicated)
+        return RequirementList(self._finalize_requirements(requirements))
 
     def _collect_pdfs(self, path: Path) -> Iterable[Path]:
         if path.is_file():
@@ -94,6 +161,13 @@ class RequirementExtractor:
                 files.extend(path.glob(f"*{ext}"))
         return files
 
+    def _collect_chunk_cache_files(self, path: Path) -> Iterable[Path]:
+        if path.is_file():
+            return [path]
+        if self.config.input.recursive:
+            return list(path.rglob("*.chunks.json"))
+        return list(path.glob("*.chunks.json"))
+
     def _extract_from_pdfs(self, pdf_files: Iterable[Path]) -> list[Requirement]:
         all_requirements: list[Requirement] = []
         for pdf_file in pdf_files:
@@ -112,6 +186,18 @@ class RequirementExtractor:
             if requirements.root or self.config.extraction.allow_empty_results:
                 all_requirements.extend(requirements.root)
         return all_requirements
+
+    def _extract_from_chunk_cache_files(self, cache_files: Iterable[Path]) -> list[Requirement]:
+        all_requirements: list[Requirement] = []
+        for cache_file in cache_files:
+            requirements = self.extract_requirements_from_chunk_cache(str(cache_file))
+            if requirements.root or self.config.extraction.allow_empty_results:
+                all_requirements.extend(requirements.root)
+        return all_requirements
+
+    def _prepare_pdfs(self, pdf_files: Iterable[Path]) -> None:
+        for pdf_file in pdf_files:
+            self.prepare_pdf(str(pdf_file))
 
     def process_single_chunk(self, chunk: AnchoredMarkdownChunk, requirement_schema: dict) -> RequirementList:
         try:
@@ -341,10 +427,10 @@ class RequirementExtractor:
 
     def _deduplicate_requirements(self, requirements: list[Requirement]) -> list[Requirement]:
         if not self.config.extraction.deduplicate_requirements:
-            return requirements
+            return self._sort_requirements(requirements)
         seen = set()
         unique_requirements = []
-        for requirement in requirements:
+        for requirement in self._sort_requirements(requirements):
             code = requirement.code.upper() if requirement.code and self.config.extraction.normalize_codes else requirement.code
             key = (code, requirement.description)
             if key in seen:
@@ -353,9 +439,62 @@ class RequirementExtractor:
             unique_requirements.append(requirement)
         return unique_requirements
 
-    def _persist_anchored_markdown(self, pdf_path: str, chunks: list[AnchoredMarkdownChunk]) -> None:
+    def _finalize_requirements(self, requirements: list[Requirement]) -> list[Requirement]:
+        deduplicated = self._deduplicate_requirements(requirements)
+        return self._sort_requirements(deduplicated)
+
+    def _sort_requirements(self, requirements: list[Requirement]) -> list[Requirement]:
+        return sorted(requirements, key=self._requirement_sort_key)
+
+    def _requirement_sort_key(self, requirement: Requirement) -> tuple:
+        page_start = requirement.source_page_start if requirement.source_page_start is not None else float("inf")
+        page_end = requirement.source_page_end if requirement.source_page_end is not None else float("inf")
+        first_block_order = self._first_block_order_for_requirement(requirement)
+        chunk_key = self._natural_sort_key(requirement.source_chunk_id)
+        code = requirement.code.upper() if requirement.code and self.config.extraction.normalize_codes else (requirement.code or "")
+        return (page_start, page_end, first_block_order, chunk_key, code)
+
+    def _first_block_order_for_requirement(self, requirement: Requirement) -> float:
+        earliest_page = requirement.source_page_start
+        candidate_orders: list[int] = []
+        for region in requirement.source_regions:
+            page_number = region.get("page_number")
+            block_order = region.get("block_order")
+            if block_order is None:
+                continue
+            if earliest_page is None or page_number == earliest_page:
+                candidate_orders.append(int(block_order))
+        if not candidate_orders:
+            return float("inf")
+        return float(min(candidate_orders))
+
+    def _natural_sort_key(self, value: Optional[str]) -> tuple:
+        if value is None:
+            return (float("inf"),)
+        parts: list[int | str] = []
+        for token in self._split_digits(value):
+            parts.append(int(token) if token.isdigit() else token.lower())
+        return tuple(parts)
+
+    def _split_digits(self, value: str) -> list[str]:
+        current = []
+        last_is_digit: Optional[bool] = None
+        parts: list[str] = []
+        for char in value:
+            is_digit = char.isdigit()
+            if last_is_digit is None or is_digit == last_is_digit:
+                current.append(char)
+            else:
+                parts.append("".join(current))
+                current = [char]
+            last_is_digit = is_digit
+        if current:
+            parts.append("".join(current))
+        return parts
+
+    def _persist_anchored_markdown(self, pdf_path: str, chunks: list[AnchoredMarkdownChunk]) -> Optional[str]:
         if not self.config.parser.persist_anchored_markdown:
-            return
+            return None
         output_dir = Path(self.config.output.directory)
         output_dir.mkdir(parents=True, exist_ok=True)
         output_path = output_dir / f"{Path(pdf_path).stem}.anchored.md"
@@ -363,8 +502,15 @@ class RequirementExtractor:
             "\n\n".join(chunk.markdown_text.strip() for chunk in chunks if chunk.markdown_text.strip()).rstrip() + "\n",
             encoding="utf-8",
         )
+        return str(output_path)
 
-    def extract_requirements_from_pdf_in_batches(self, pdf_path: str) -> RequirementList:
+    def _persist_chunk_cache(self, source_path: str, chunks: list[AnchoredMarkdownChunk]) -> str:
+        output_dir = Path(self.config.output.directory)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / f"{Path(source_path).stem}.chunks.json"
+        return write_chunk_cache(chunks, output_path, source_document=source_path)
+
+    def prepare_pdf_in_batches(self, pdf_path: str) -> list[AnchoredMarkdownChunk]:
         page_count = self._count_pdf_pages(pdf_path)
         batch_windows = self._build_batch_windows(page_count)
         pdf_stem = Path(pdf_path).stem
@@ -373,15 +519,43 @@ class RequirementExtractor:
         toc_pruning_plan = self._build_batch_toc_pruning_plan(pdf_path)
         self._persist_batch_toc_pruning_report(toc_pruning_plan)
 
-        all_requirements: list[Requirement] = []
+        merged_chunks: list[AnchoredMarkdownChunk] = []
         anchored_parts: list[str] = []
 
         for start_page, end_page in batch_windows:
             slice_dir = batch_root / f"p{start_page:03d}-{end_page:03d}"
             batch_config = self._build_batch_config(slice_dir, start_page, end_page)
             batch_extractor = self._spawn_batch_extractor(batch_config, toc_pruning_plan=toc_pruning_plan)
-            batch_requirements = batch_extractor.extract_requirements_from_pdf(pdf_path)
+            batch_chunks = batch_extractor.prepare_pdf_chunks(pdf_path)
+            merged_chunks.extend(batch_chunks)
+
+            anchored_path = slice_dir / f"{pdf_stem}.anchored.md"
+            if anchored_path.exists():
+                anchored_parts.append(anchored_path.read_text(encoding="utf-8").strip())
+
+        self._persist_combined_batch_anchored_markdown(pdf_path, anchored_parts)
+        self._persist_combined_batch_chunk_cache(pdf_path, merged_chunks)
+        return merged_chunks
+
+    def extract_requirements_from_pdf_in_batches(self, pdf_path: str) -> RequirementList:
+        pdf_stem = Path(pdf_path).stem
+        all_requirements: list[Requirement] = []
+        page_count = self._count_pdf_pages(pdf_path)
+        batch_windows = self._build_batch_windows(page_count)
+        batch_root = Path(self.config.output.directory) / self.config.parser.batch_output_subdir / pdf_stem
+        toc_pruning_plan = self._build_batch_toc_pruning_plan(pdf_path)
+        self._persist_batch_toc_pruning_report(toc_pruning_plan)
+        merged_chunks: list[AnchoredMarkdownChunk] = []
+        anchored_parts: list[str] = []
+
+        for start_page, end_page in batch_windows:
+            slice_dir = batch_root / f"p{start_page:03d}-{end_page:03d}"
+            batch_config = self._build_batch_config(slice_dir, start_page, end_page)
+            batch_extractor = self._spawn_batch_extractor(batch_config, toc_pruning_plan=toc_pruning_plan)
+            batch_chunks = batch_extractor.prepare_pdf_chunks(pdf_path)
+            batch_requirements = batch_extractor.extract_requirements_from_chunks(batch_chunks)
             batch_extractor.excel_writer.write(batch_requirements)
+            merged_chunks.extend(batch_chunks)
 
             if batch_requirements.root or self.config.extraction.allow_empty_results:
                 all_requirements.extend(batch_requirements.root)
@@ -391,7 +565,8 @@ class RequirementExtractor:
                 anchored_parts.append(anchored_path.read_text(encoding="utf-8").strip())
 
         self._persist_combined_batch_anchored_markdown(pdf_path, anchored_parts)
-        return RequirementList(self._deduplicate_requirements(all_requirements))
+        self._persist_combined_batch_chunk_cache(pdf_path, merged_chunks)
+        return RequirementList(self._finalize_requirements(all_requirements))
 
     def _batch_mode_enabled(self) -> bool:
         return (self.config.parser.batch_page_count or 0) > 0
@@ -449,6 +624,8 @@ class RequirementExtractor:
             config=batch_config,
             ollama_client=self.ollama_client,
             toc_pruning_plan=toc_pruning_plan,
+            command_name=self.command_name,
+            write_run_manifest=False,
         )
 
     def _persist_combined_batch_anchored_markdown(self, pdf_path: str, anchored_parts: list[str]) -> None:
@@ -461,6 +638,12 @@ class RequirementExtractor:
             "\n\n".join(part for part in anchored_parts if part).rstrip() + "\n",
             encoding="utf-8",
         )
+
+    def _persist_combined_batch_chunk_cache(self, pdf_path: str, chunks: list[AnchoredMarkdownChunk]) -> str:
+        output_dir = Path(self.config.output.directory)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / f"{Path(pdf_path).stem}.chunks.json"
+        return write_chunk_cache(chunks, output_path, source_document=pdf_path)
 
     def _build_batch_toc_pruning_plan(self, pdf_path: str) -> Optional[dict]:
         if self.config.parser.toc_section_pruning_mode == "off":
@@ -481,6 +664,108 @@ class RequirementExtractor:
         output_dir.mkdir(parents=True, exist_ok=True)
         output_path = output_dir / self.config.parser.toc_pruning_report_filename
         output_path.write_text(json.dumps(toc_pruning_plan, indent=2), encoding="utf-8")
+
+    def _write_run_manifest(
+        self,
+        *,
+        pdf_sources: Iterable[Path] = (),
+        markdown_sources: Iterable[Path] = (),
+        chunk_cache_sources: Iterable[Path] = (),
+        used_live_ocr: bool,
+        used_chunk_cache_replay: bool,
+    ) -> None:
+        output_dir = Path(self.config.output.directory)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        manifest_path = output_dir / "run-manifest.json"
+        manifest = {
+            "command": self.command_name,
+            "input": {
+                "mode": self.config.input.mode,
+                "path": self.config.input.path,
+                "recursive": self.config.input.recursive,
+                "pdf_sources": [str(path) for path in pdf_sources],
+                "markdown_sources": [str(path) for path in markdown_sources],
+                "chunk_cache_sources": [str(path) for path in chunk_cache_sources],
+            },
+            "execution": {
+                "used_live_ocr": used_live_ocr,
+                "used_chunk_cache_replay": used_chunk_cache_replay,
+            },
+            "parser": asdict(self.config.parser),
+            "chunking": asdict(self.config.chunking),
+            "extraction": asdict(self.config.extraction),
+            "parallel": asdict(self.config.parallel),
+            "ollama": asdict(self.config.ollama),
+            "artifacts": self._build_artifact_manifest_entries(
+                pdf_sources=pdf_sources,
+                markdown_sources=markdown_sources,
+                chunk_cache_sources=chunk_cache_sources,
+            ),
+        }
+        manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    def _build_artifact_manifest_entries(
+        self,
+        *,
+        pdf_sources: Iterable[Path],
+        markdown_sources: Iterable[Path],
+        chunk_cache_sources: Iterable[Path],
+    ) -> dict:
+        output_dir = Path(self.config.output.directory)
+        exports = {}
+        for filename_key, filename in (
+            ("requirements_xlsx", "requirements.xlsx"),
+            ("requirements_review_json", self.config.output.review_artifact_filename),
+            ("requirements_review_md", self.config.output.review_markdown_filename),
+            ("requirements_review_html", self.config.output.review_html_filename),
+        ):
+            path = output_dir / filename
+            if path.exists() or self.command_name != "prepare-pdf":
+                exports[filename_key] = str(path)
+
+        pdf_entries = [self._build_pdf_source_artifact_entry(path) for path in pdf_sources]
+        markdown_entries = [
+            {
+                "source": str(path),
+            }
+            for path in markdown_sources
+        ]
+        chunk_cache_entries = [
+            {
+                "source": str(path),
+            }
+            for path in chunk_cache_sources
+        ]
+        artifacts = {
+            "output_directory": str(output_dir),
+            "exports": exports,
+            "pdf_sources": pdf_entries,
+            "markdown_sources": markdown_entries,
+            "chunk_cache_sources": chunk_cache_entries,
+        }
+        return artifacts
+
+    def _build_pdf_source_artifact_entry(self, pdf_path: Path) -> dict:
+        output_dir = Path(self.config.output.directory)
+        pdf_stem = pdf_path.stem
+        entry = {
+            "source": str(pdf_path),
+            "anchored_markdown": str(output_dir / f"{pdf_stem}.anchored.md"),
+            "chunk_cache": str(output_dir / f"{pdf_stem}.chunks.json"),
+            "toc_pruning_report": str(output_dir / self.config.parser.toc_pruning_report_filename),
+        }
+        if self._batch_mode_enabled():
+            batch_root = output_dir / self.config.parser.batch_output_subdir / pdf_stem
+            entry["batch_root"] = str(batch_root)
+            entry["page_windows"] = [
+                {"start_page": start_page, "end_page": end_page}
+                for start_page, end_page in self._build_batch_windows(self._count_pdf_pages(str(pdf_path)))
+            ]
+        else:
+            entry["ocr_input_pdf"] = str(output_dir / "ocr-input.pdf")
+            entry["page_images_dir"] = str(output_dir / "page-images")
+            entry["ocr_pages_dir"] = str(output_dir / "ocr-pages")
+        return entry
 
 
 def extract_requirements_from_pdf(pdf_path: str, config: AppConfig) -> RequirementList:

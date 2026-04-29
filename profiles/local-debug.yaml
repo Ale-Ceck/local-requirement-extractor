@@ -1,0 +1,22 @@
+input:
+  path: ./data/input
+  mode: pdf
+  recursive: false
+
+output:
+  directory: ./data/output-debug
+
+parser:
+  backend: paddleocr_vl
+  batch_page_count: 5
+  toc_section_pruning_mode: enforce
+  persist_anchored_markdown: true
+
+parallel:
+  enabled: false
+  max_workers: 1
+
+logging:
+  level: DEBUG
+  log_llm_prompts: true
+  log_llm_responses: true

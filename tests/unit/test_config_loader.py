@@ -65,3 +65,16 @@ def test_load_config_reads_parser_section():
     assert config.parser.persist_anchored_markdown is True
     assert config.chunking.max_chunk_chars == 5000
     assert config.extraction.allow_uncited_results is False
+
+
+def test_profile_configs_load():
+    for relative_path in (
+        "profiles/local-stable.yaml",
+        "profiles/local-debug.yaml",
+        "profiles/replay-extract.yaml",
+    ):
+        config = load_config(relative_path)
+        assert config.input.path
+
+    replay_config = load_config("profiles/replay-extract.yaml")
+    assert replay_config.input.mode == "chunk_cache"

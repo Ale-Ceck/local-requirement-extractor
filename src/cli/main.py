@@ -25,7 +25,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "command",
         nargs="?",
         default="extract",
-        choices=["extract", "check-vlm-service", "start-vlm-service"],
+        choices=["extract", "prepare-pdf", "check-vlm-service", "start-vlm-service"],
         help="Command to execute",
     )
     parser.add_argument(
@@ -51,7 +51,7 @@ def main() -> None:
     if args.command == "start-vlm-service":
         raise SystemExit(vlm_service.start_server())
 
-    extractor = RequirementExtractor(config)
+    extractor = RequirementExtractor(config, command_name=args.command)
     extractor.run()
 
 
