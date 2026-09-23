@@ -6,9 +6,16 @@ input:
 output:
   directory: ./data/output-replay
 
+chunking:
+  max_chunk_chars: 4000
+
 parallel:
   enabled: true
   max_workers: 5
+
+ollama:
+  temperature: 0.0
+  seed: 42
 
 logging:
   level: INFO

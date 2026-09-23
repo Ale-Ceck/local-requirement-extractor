@@ -12,9 +12,16 @@ parser:
   toc_section_pruning_mode: enforce
   persist_anchored_markdown: true
 
+chunking:
+  max_chunk_chars: 4000
+
 parallel:
   enabled: true
   max_workers: 5
+
+ollama:
+  temperature: 0.0
+  seed: 42
 
 logging:
   level: INFO

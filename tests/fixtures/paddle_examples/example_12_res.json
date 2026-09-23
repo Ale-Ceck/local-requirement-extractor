@@ -1,0 +1,766 @@
+{
+    "input_path": "./example.pdf",
+    "page_index": 12,
+    "page_count": 27,
+    "width": 1224,
+    "height": 1584,
+    "model_settings": {
+        "use_doc_preprocessor": false,
+        "use_layout_detection": true,
+        "use_chart_recognition": false,
+        "use_seal_recognition": false,
+        "use_ocr_for_image_block": false,
+        "format_block_content": false,
+        "merge_layout_blocks": true,
+        "markdown_ignore_labels": [
+            "number",
+            "footnote",
+            "header",
+            "header_image",
+            "footer",
+            "footer_image",
+            "aside_text"
+        ],
+        "return_layout_polygon_points": true
+    },
+    "parsing_res_list": [
+        {
+            "block_label": "paragraph_title",
+            "block_content": "3.3 Documentation delivery",
+            "block_bbox": [
+                183,
+                237,
+                457,
+                262
+            ],
+            "block_id": 0,
+            "block_order": 1,
+            "group_id": 0,
+            "block_polygon_points": [
+                [
+                    183.0,
+                    237.0
+                ],
+                [
+                    457.0,
+                    237.0
+                ],
+                [
+                    457.0,
+                    262.0
+                ],
+                [
+                    183.0,
+                    262.0
+                ]
+            ]
+        },
+        {
+            "block_label": "text",
+            "block_content": "The equipment documentation deliveries are as specified in the Generic SOW [AD 028].",
+            "block_bbox": [
+                182,
+                282,
+                921,
+                308
+            ],
+            "block_id": 1,
+            "block_order": 2,
+            "group_id": 1,
+            "block_polygon_points": [
+                [
+                    182.0,
+                    282.0
+                ],
+                [
+                    921.0,
+                    282.0
+                ],
+                [
+                    921.0,
+                    308.0
+                ],
+                [
+                    182.0,
+                    308.0
+                ]
+            ]
+        },
+        {
+            "block_label": "text",
+            "block_content": "Formal submittals for equipment reviews:",
+            "block_bbox": [
+                183,
+                357,
+                564,
+                382
+            ],
+            "block_id": 2,
+            "block_order": 3,
+            "group_id": 2,
+            "block_polygon_points": [
+                [
+                    183.0,
+                    357.0
+                ],
+                [
+                    564.0,
+                    357.0
+                ],
+                [
+                    564.0,
+                    382.0
+                ],
+                [
+                    183.0,
+                    382.0
+                ]
+            ]
+        },
+        {
+            "block_label": "table",
+            "block_content": "<table><tr><td>Review acronym</td><td>Review name</td><td>Unit</td></tr><tr><td>KO</td><td>Kick-off</td><td>✗</td></tr><tr><td>EQSR</td><td>Equipment Qualification Status Review</td><td>✗</td></tr><tr><td>IR</td><td>Intermediate Review</td><td>✗</td></tr><tr><td>MRR</td><td>Manufacturing Release review</td><td>✗</td></tr><tr><td>TRR</td><td>Test Readiness Review</td><td>✗</td></tr><tr><td>TRB</td><td>Test Review Board</td><td>✗</td></tr><tr><td>DRB</td><td>Delivery Review Board</td><td>✗</td></tr></table>",
+            "block_bbox": [
+                174,
+                427,
+                1042,
+                781
+            ],
+            "block_id": 3,
+            "block_order": null,
+            "group_id": 3,
+            "block_polygon_points": [
+                [
+                    174.0,
+                    427.0
+                ],
+                [
+                    1042.0,
+                    427.0
+                ],
+                [
+                    1042.0,
+                    781.0
+                ],
+                [
+                    174.0,
+                    781.0
+                ]
+            ]
+        },
+        {
+            "block_label": "vision_footnote",
+            "block_content": "Note: the need for these reviews shall be established on the basis of requirements expressed in [AD 028].",
+            "block_bbox": [
+                183,
+                794,
+                1026,
+                842
+            ],
+            "block_id": 4,
+            "block_order": null,
+            "group_id": 4,
+            "block_polygon_points": [
+                [
+                    183.0,
+                    794.0
+                ],
+                [
+                    1026.0,
+                    794.0
+                ],
+                [
+                    1026.0,
+                    842.0
+                ],
+                [
+                    183.0,
+                    842.0
+                ]
+            ]
+        },
+        {
+            "block_label": "paragraph_title",
+            "block_content": "Formal Submittals for Boards (As Design, As Built):",
+            "block_bbox": [
+                182,
+                888,
+                652,
+                913
+            ],
+            "block_id": 5,
+            "block_order": 4,
+            "group_id": 5,
+            "block_polygon_points": [
+                [
+                    182.0,
+                    888.0
+                ],
+                [
+                    652.0,
+                    888.0
+                ],
+                [
+                    652.0,
+                    913.0
+                ],
+                [
+                    182.0,
+                    913.0
+                ]
+            ]
+        },
+        {
+            "block_label": "text",
+            "block_content": "Not applicable for HAA EM, but to be noted for HAA FM :",
+            "block_bbox": [
+                182,
+                941,
+                665,
+                965
+            ],
+            "block_id": 6,
+            "block_order": 5,
+            "group_id": 6,
+            "block_polygon_points": [
+                [
+                    182.0,
+                    941.0
+                ],
+                [
+                    665.0,
+                    941.0
+                ],
+                [
+                    665.0,
+                    965.0
+                ],
+                [
+                    182.0,
+                    965.0
+                ]
+            ]
+        },
+        {
+            "block_label": "table",
+            "block_content": "<table><tr><td>Board acronym</td><td>Boards name</td><td>Unit</td></tr><tr><td>MPCB</td><td>Material and Process Control Board</td><td>X (2)</td></tr><tr><td>PCB</td><td>Parts (EEE) Control Board</td><td>X (2)</td></tr><tr><td>ERCB</td><td>Equipment Radiation Control Board</td><td>X</td></tr></table>",
+            "block_bbox": [
+                176,
+                985,
+                1041,
+                1159
+            ],
+            "block_id": 7,
+            "block_order": null,
+            "group_id": 7,
+            "block_polygon_points": [
+                [
+                    176.0,
+                    985.0
+                ],
+                [
+                    1041.0,
+                    985.0
+                ],
+                [
+                    1041.0,
+                    1159.0
+                ],
+                [
+                    176.0,
+                    1159.0
+                ]
+            ]
+        },
+        {
+            "block_label": "text",
+            "block_content": "Note (1): the above mentioned boards shall be held at the timeframes required in the Generic SOW [AD 028]. They shall take place prior to MRR, TRR and TRB and their findings reported to the chairperson of those reviews for proper conclusion.",
+            "block_bbox": [
+                182,
+                1170,
+                1021,
+                1253
+            ],
+            "block_id": 8,
+            "block_order": 6,
+            "group_id": 8,
+            "block_polygon_points": [
+                [
+                    182.0,
+                    1170.0
+                ],
+                [
+                    1021.0,
+                    1170.0
+                ],
+                [
+                    1021.0,
+                    1253.0
+                ],
+                [
+                    182.0,
+                    1253.0
+                ]
+            ]
+        },
+        {
+            "block_label": "text",
+            "block_content": "Note (2): Only as-designed PCB and MPCB have to be held for HAA EM(Q)",
+            "block_bbox": [
+                182,
+                1268,
+                822,
+                1293
+            ],
+            "block_id": 9,
+            "block_order": 7,
+            "group_id": 9,
+            "block_polygon_points": [
+                [
+                    182.0,
+                    1268.0
+                ],
+                [
+                    822.0,
+                    1268.0
+                ],
+                [
+                    822.0,
+                    1293.0
+                ],
+                [
+                    182.0,
+                    1293.0
+                ]
+            ]
+        },
+        {
+            "block_label": "footer",
+            "block_content": "PROPRIETARY & CONFIDENTIAL INFORMATION\nThis document and the information it contains are property of Airbus Defence and Space. It shall not be used for any purpose other than those for which it was supplied. It shall not be reproduced or disclosed (in whole or in part) to any third party without Airbus Defence and Space prior written consent.\nAirbus Defence and Space SAS – All rights reserved.",
+            "block_bbox": [
+                296,
+                1463,
+                924,
+                1545
+            ],
+            "block_id": 10,
+            "block_order": null,
+            "group_id": 10,
+            "block_polygon_points": [
+                [
+                    296.0,
+                    1463.0
+                ],
+                [
+                    924.0,
+                    1463.0
+                ],
+                [
+                    924.0,
+                    1545.0
+                ],
+                [
+                    296.0,
+                    1545.0
+                ]
+            ]
+        },
+        {
+            "block_label": "number",
+            "block_content": "Page 13/27",
+            "block_bbox": [
+                1005,
+                1524,
+                1096,
+                1544
+            ],
+            "block_id": 11,
+            "block_order": null,
+            "group_id": 11,
+            "block_polygon_points": [
+                [
+                    1005.0,
+                    1523.9998779296875
+                ],
+                [
+                    1095.0,
+                    1523.9998779296875
+                ],
+                [
+                    1095.0,
+                    1542.9998779296875
+                ],
+                [
+                    1005.0,
+                    1542.9998779296875
+                ]
+            ]
+        }
+    ],
+    "layout_det_res": {
+        "input_path": null,
+        "page_index": null,
+        "boxes": [
+            {
+                "cls_id": 17,
+                "label": "paragraph_title",
+                "score": 0.8746157884597778,
+                "coordinate": [
+                    183,
+                    237,
+                    457,
+                    262
+                ],
+                "order": 1,
+                "polygon_points": [
+                    [
+                        183.0,
+                        237.0
+                    ],
+                    [
+                        457.0,
+                        237.0
+                    ],
+                    [
+                        457.0,
+                        262.0
+                    ],
+                    [
+                        183.0,
+                        262.0
+                    ]
+                ]
+            },
+            {
+                "cls_id": 22,
+                "label": "text",
+                "score": 0.8701878190040588,
+                "coordinate": [
+                    182,
+                    282,
+                    921,
+                    308
+                ],
+                "order": 2,
+                "polygon_points": [
+                    [
+                        182.0,
+                        282.0
+                    ],
+                    [
+                        921.0,
+                        282.0
+                    ],
+                    [
+                        921.0,
+                        308.0
+                    ],
+                    [
+                        182.0,
+                        308.0
+                    ]
+                ]
+            },
+            {
+                "cls_id": 22,
+                "label": "text",
+                "score": 0.7269614338874817,
+                "coordinate": [
+                    183,
+                    357,
+                    564,
+                    382
+                ],
+                "order": 3,
+                "polygon_points": [
+                    [
+                        183.0,
+                        357.0
+                    ],
+                    [
+                        564.0,
+                        357.0
+                    ],
+                    [
+                        564.0,
+                        382.0
+                    ],
+                    [
+                        183.0,
+                        382.0
+                    ]
+                ]
+            },
+            {
+                "cls_id": 21,
+                "label": "table",
+                "score": 0.9729911088943481,
+                "coordinate": [
+                    174,
+                    427,
+                    1042,
+                    781
+                ],
+                "order": null,
+                "polygon_points": [
+                    [
+                        174.0,
+                        427.0
+                    ],
+                    [
+                        1042.0,
+                        427.0
+                    ],
+                    [
+                        1042.0,
+                        781.0
+                    ],
+                    [
+                        174.0,
+                        781.0
+                    ]
+                ]
+            },
+            {
+                "cls_id": 24,
+                "label": "vision_footnote",
+                "score": 0.7334423661231995,
+                "coordinate": [
+                    183,
+                    794,
+                    1026,
+                    842
+                ],
+                "order": null,
+                "polygon_points": [
+                    [
+                        183.0,
+                        794.0
+                    ],
+                    [
+                        1026.0,
+                        794.0
+                    ],
+                    [
+                        1026.0,
+                        842.0
+                    ],
+                    [
+                        183.0,
+                        842.0
+                    ]
+                ]
+            },
+            {
+                "cls_id": 17,
+                "label": "paragraph_title",
+                "score": 0.45590418577194214,
+                "coordinate": [
+                    182,
+                    888,
+                    652,
+                    913
+                ],
+                "order": 4,
+                "polygon_points": [
+                    [
+                        182.0,
+                        888.0
+                    ],
+                    [
+                        652.0,
+                        888.0
+                    ],
+                    [
+                        652.0,
+                        913.0
+                    ],
+                    [
+                        182.0,
+                        913.0
+                    ]
+                ]
+            },
+            {
+                "cls_id": 22,
+                "label": "text",
+                "score": 0.8580656051635742,
+                "coordinate": [
+                    182,
+                    941,
+                    665,
+                    965
+                ],
+                "order": 5,
+                "polygon_points": [
+                    [
+                        182.0,
+                        941.0
+                    ],
+                    [
+                        665.0,
+                        941.0
+                    ],
+                    [
+                        665.0,
+                        965.0
+                    ],
+                    [
+                        182.0,
+                        965.0
+                    ]
+                ]
+            },
+            {
+                "cls_id": 21,
+                "label": "table",
+                "score": 0.9560970067977905,
+                "coordinate": [
+                    176,
+                    985,
+                    1041,
+                    1159
+                ],
+                "order": null,
+                "polygon_points": [
+                    [
+                        176.0,
+                        985.0
+                    ],
+                    [
+                        1041.0,
+                        985.0
+                    ],
+                    [
+                        1041.0,
+                        1159.0
+                    ],
+                    [
+                        176.0,
+                        1159.0
+                    ]
+                ]
+            },
+            {
+                "cls_id": 22,
+                "label": "text",
+                "score": 0.9044365286827087,
+                "coordinate": [
+                    182,
+                    1170,
+                    1021,
+                    1253
+                ],
+                "order": 6,
+                "polygon_points": [
+                    [
+                        182.0,
+                        1170.0
+                    ],
+                    [
+                        1021.0,
+                        1170.0
+                    ],
+                    [
+                        1021.0,
+                        1253.0
+                    ],
+                    [
+                        182.0,
+                        1253.0
+                    ]
+                ]
+            },
+            {
+                "cls_id": 22,
+                "label": "text",
+                "score": 0.8804266452789307,
+                "coordinate": [
+                    182,
+                    1268,
+                    822,
+                    1293
+                ],
+                "order": 7,
+                "polygon_points": [
+                    [
+                        182.0,
+                        1268.0
+                    ],
+                    [
+                        822.0,
+                        1268.0
+                    ],
+                    [
+                        822.0,
+                        1293.0
+                    ],
+                    [
+                        182.0,
+                        1293.0
+                    ]
+                ]
+            },
+            {
+                "cls_id": 8,
+                "label": "footer",
+                "score": 0.8857911825180054,
+                "coordinate": [
+                    296,
+                    1463,
+                    924,
+                    1545
+                ],
+                "order": null,
+                "polygon_points": [
+                    [
+                        296.0,
+                        1463.0
+                    ],
+                    [
+                        924.0,
+                        1463.0
+                    ],
+                    [
+                        924.0,
+                        1545.0
+                    ],
+                    [
+                        296.0,
+                        1545.0
+                    ]
+                ]
+            },
+            {
+                "cls_id": 16,
+                "label": "number",
+                "score": 0.777827262878418,
+                "coordinate": [
+                    1005,
+                    1524,
+                    1096,
+                    1544
+                ],
+                "order": 8,
+                "polygon_points": [
+                    [
+                        1005.0,
+                        1523.9998779296875
+                    ],
+                    [
+                        1095.0,
+                        1523.9998779296875
+                    ],
+                    [
+                        1095.0,
+                        1542.9998779296875
+                    ],
+                    [
+                        1005.0,
+                        1542.9998779296875
+                    ]
+                ]
+            }
+        ]
+    }
+}

@@ -1,8 +1,8 @@
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
-
 # ---------- Input ----------
+
 
 @dataclass
 class InputConfig:
@@ -13,6 +13,7 @@ class InputConfig:
 
 
 # ---------- Output ----------
+
 
 @dataclass
 class OutputConfig:
@@ -30,6 +31,7 @@ class OutputConfig:
 
 # ---------- PDF ----------
 
+
 @dataclass
 class PDFConfig:
     markdown_output_dir: Optional[str] = "./data/markdown_output"
@@ -39,6 +41,7 @@ class PDFConfig:
 
 
 # ---------- Parser ----------
+
 
 @dataclass
 class ParserConfig:
@@ -101,6 +104,7 @@ class ParserConfig:
 
 # ---------- Chunking ----------
 
+
 @dataclass
 class ChunkingConfig:
     headers_to_split_on: List[Tuple[str, str]] = field(
@@ -117,6 +121,7 @@ class ChunkingConfig:
 
 # ---------- Extraction ----------
 
+
 @dataclass
 class ExtractionConfig:
     model_name: str = "llama3:latest"
@@ -128,6 +133,7 @@ class ExtractionConfig:
 
 # ---------- Parallel ----------
 
+
 @dataclass
 class ParallelConfig:
     enabled: bool = True
@@ -138,17 +144,20 @@ class ParallelConfig:
 
 # ---------- Ollama ----------
 
+
 @dataclass
 class OllamaConfig:
     host: str = "http://localhost:11434"
     timeout_seconds: int = 300
     keep_alive: bool = True
-    temperature: Optional[float] = None
+    temperature: Optional[float] = 0.0
     top_p: Optional[float] = None
     max_tokens: Optional[int] = None
+    seed: Optional[int] = 42
 
 
 # ---------- Logging ----------
+
 
 @dataclass
 class LoggingConfig:
@@ -161,6 +170,7 @@ class LoggingConfig:
 
 
 # ---------- Root ----------
+
 
 @dataclass
 class AppConfig:

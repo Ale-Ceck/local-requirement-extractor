@@ -74,6 +74,8 @@ parallel:
 ollama:
   host: "http://localhost:11434"
   timeout_seconds: 1800
+  temperature: 0.0
+  seed: 42
 
 logging:
   level: "DEBUG"

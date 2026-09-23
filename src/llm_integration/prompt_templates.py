@@ -1,4 +1,7 @@
-from typing import Dict, Any
+import hashlib
+import inspect
+
+REQUIREMENT_EXTRACTION_PROMPT_VERSION = "2026-09-22.1"
 
 # ==============================================================================
 # 1. Core Prompt Template for Requirement Extraction
@@ -6,12 +9,14 @@ from typing import Dict, Any
 #    It instructs the LLM on its role, task, constraints, and output format.
 # ==============================================================================
 
+
 # Define a function to generate the main extraction prompt.
 # This allows for dynamic injection of context (like ground truth schema).
-def get_requirement_extraction_prompt(text_content: str,
-                                      output_schema_json: str, # JSON schema string of Requirement Pydantic model
-                                      few_shot_examples: str = "" # String containing few-shot examples
-                                      ) -> str:
+def get_requirement_extraction_prompt(
+    text_content: str,
+    output_schema_json: str,  # JSON schema string of Requirement Pydantic model
+    few_shot_examples: str = "",  # String containing few-shot examples
+) -> str:
     """
     Generates the prompt for extracting requirements from a given text.
 
@@ -30,7 +35,7 @@ def get_requirement_extraction_prompt(text_content: str,
     """
 
     # Task Instruction: Detail the specific task
-    task_instruction = f"""
+    task_instruction = """
     [Task]
     Your task is to identify and extract all requirement entries from the provided text in the [Document] section. A requirement consists of:
     1.  A unique **code** (e.g., REQ-123, HAA-54).
@@ -83,7 +88,7 @@ def get_requirement_extraction_prompt(text_content: str,
     """
 
     # Combine all parts of the prompt
-    #{output_format_instruction.strip()}
+    # {output_format_instruction.strip()}
     full_prompt = f"""
     {system_instruction.strip()}
 
@@ -100,13 +105,14 @@ def get_requirement_extraction_prompt(text_content: str,
     """
     return full_prompt.strip()
 
+
 # ==============================================================================
 # 2. Few-Shot Examples (Optional but Recommended)
 #    Store few-shot examples separately. These can be generated or hand-crafted.
 #    Use a format that's easy to embed into the main prompt.
 # ==============================================================================
 
-# Example structure for few-shot examples. 
+# Example structure for few-shot examples.
 FEW_SHOT_REQUIREMENT_EXAMPLES = """
 Example 1:
 "<a id=\"seg-p127-i001\"></a>
@@ -138,34 +144,37 @@ Output JSON:
 [
     {
         "code": "HAA-127",
-        "description": "The following operational average and maximum dissipation shall be respected:\n• HAA ADA average: 13 W\n• HAA ACU average: 9 W\n• HAA ADA design max: 19.5 W\n• HAA ACU design max: 10 W",
+        "description": "The following operational average and maximum dissipation shall be respected:\\n• HAA ADA average: 13 W\\n• HAA ACU average: 9 W\\n• HAA ADA design max: 19.5 W\\n• HAA ACU design max: 10 W",
         "source_segment_ids": ["seg-p127-i002", "seg-p127-i003", "seg-p127-i004", "seg-p127-i005", "seg-p127-i006", "seg-p127-i007"]
     }
 ]
 
 Example 2:
 "
-<a id=\"seg-p131-i001\"></a>
-#### 4.2.3 Environment temperature range
+<a id=\"seg-thermal-001\"></a>
+#### 2.1 Temperature measurement
 
-<a id=\"seg-p131-i002\"></a>
-## HAA-131 / CREATED / R
+<a id=\"seg-thermal-002\"></a>
+## REQ-THERM-001
 
-<a id=\"seg-p131-i003\"></a>
-The Temperature Reference Point (TRP) for the HAA shall be defined by the Supplier at a single HAA interface point and shall be approved by Prime.
+<a id=\"seg-thermal-003\"></a>
+The unit shall measure temperature at the designated reference point.
 
-<a id=\"seg-p131-i004\"></a>
-If necessary, a radiative TRP could be defined for radiative influence measure.
+<a id=\"seg-thermal-004\"></a>
+Note: readings shall use the same reference point.
 
-<a id=\"seg-p131-i005\"></a>
-The HAA shall withstand the temperature ranges at unit TRP given in the table below:
+<a id=\"seg-thermal-005\"></a>
+#### 2.2 Verification procedure
+
+<a id=\"seg-thermal-006\"></a>
+The verification procedure is described separately.
 "
 Output JSON:
 [
     {
-        "code": "HAA-131",
-        "description": "The Temperature Reference Point (TRP) for the HAA shall be defined by the Supplier at a single HAA interface point and shall be approved by Prime.\nIf necessary, a radiative TRP could be defined for radiative influence measure.",
-        "source_segment_ids": ["seg-p131-i002", "seg-p131-i003", "seg-p131-i004"]
+        "code": "REQ-THERM-001",
+        "description": "The unit shall measure temperature at the designated reference point.\\nNote: readings shall use the same reference point.",
+        "source_segment_ids": ["seg-thermal-002", "seg-thermal-003", "seg-thermal-004"]
     }
 ]
 
@@ -190,7 +199,7 @@ Output JSON:
 [
     {
         "code": "HAA-313",
-        "description": "The HAA shall be designed to work with 1 heater line (Nominal + Redundant) controlled by spacecraft. For that purpose, heaters and 3 thermistors shall be procured and installed by the supplier and can be connected to spacecraft active thermal control.\nNote 1: the control will be performed with an ON/OFF coarse temperature control.\nNote 2: thermistors shall be of Type 3 as specified in [AD 03].",
+        "description": "The HAA shall be designed to work with 1 heater line (Nominal + Redundant) controlled by spacecraft. For that purpose, heaters and 3 thermistors shall be procured and installed by the supplier and can be connected to spacecraft active thermal control.\\nNote 1: the control will be performed with an ON/OFF coarse temperature control.\\nNote 2: thermistors shall be of Type 3 as specified in [AD 03].",
         "source_segment_ids": ["seg-p313-i001", "seg-p313-i002", "seg-p313-i003", "seg-p313-i004"]
     }
 ]
@@ -219,12 +228,35 @@ Output JSON:
 ]
 """
 
+
+def get_requirement_extraction_prompt_fingerprint() -> dict[str, str]:
+    """Return a stable identifier and checksum for the active extraction prompt."""
+    prompt_source = inspect.getsource(get_requirement_extraction_prompt)
+    payload = "\n".join(
+        (
+            REQUIREMENT_EXTRACTION_PROMPT_VERSION,
+            prompt_source,
+            FEW_SHOT_REQUIREMENT_EXAMPLES,
+        )
+    )
+    return {
+        "version": REQUIREMENT_EXTRACTION_PROMPT_VERSION,
+        "sha256": hashlib.sha256(payload.encode("utf-8")).hexdigest(),
+    }
+
+
 # ==============================================================================
 # 3. Utility for getting prompt versions or specific prompt types
 #    If you have multiple types of prompts (e.g., for summary, for validation, etc.)
 # ==============================================================================
 
-def get_prompt(prompt_name: str, text_content: str, output_schema_json: str, include_few_shot: bool = True) -> str:
+
+def get_prompt(
+    prompt_name: str,
+    text_content: str,
+    output_schema_json: str,
+    include_few_shot: bool = True,
+) -> str:
     """
     Retrieves a specific prompt template by name.
 
@@ -244,9 +276,7 @@ def get_prompt(prompt_name: str, text_content: str, output_schema_json: str, inc
 
     if prompt_name == "requirement_extraction":
         return get_requirement_extraction_prompt(
-            text_content,
-            output_schema_json,
-            few_shot_examples_str
+            text_content, output_schema_json, few_shot_examples_str
         )
     # Add more elif blocks for other prompt types if needed in the future
     # elif prompt_name == "summary":
@@ -254,13 +284,15 @@ def get_prompt(prompt_name: str, text_content: str, output_schema_json: str, inc
     else:
         raise ValueError(f"Unknown prompt name: {prompt_name}")
 
+
 # ==============================================================================
 # 4. Example Usage (for testing/demonstration)
 # ==============================================================================
 
 if __name__ == "__main__":
-    from src.data_models.requirement import Requirement
     import json
+
+    from src.data_models.requirement import Requirement
 
     # Get the JSON schema from your Pydantic model
     requirement_schema = json.dumps(Requirement.model_json_schema(), indent=2)
@@ -276,18 +308,18 @@ if __name__ == "__main__":
         "requirement_extraction",
         sample_doc_content,
         requirement_schema,
-        include_few_shot=True
+        include_few_shot=True,
     )
     print("--- Prompt with Few-Shot Examples ---")
     print(prompt_with_examples)
-    print("\n" + "="*80 + "\n")
+    print("\n" + "=" * 80 + "\n")
 
     # Get the prompt without few-shot examples
     prompt_without_examples = get_prompt(
         "requirement_extraction",
         sample_doc_content,
         requirement_schema,
-        include_few_shot=False
+        include_few_shot=False,
     )
     print("--- Prompt Without Few-Shot Examples ---")
     print(prompt_without_examples)
