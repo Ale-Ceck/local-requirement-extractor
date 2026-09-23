@@ -84,7 +84,7 @@ class MarkdownSplitter:
         except Exception as e:
             self.logger.error(f"Error during markdown splitting: {e}")
             return []
-    
+
     def _max_tokens(self) -> int:
         """Derive token limit from config, falling back to default heuristic."""
         if self.config.max_chunk_chars:
