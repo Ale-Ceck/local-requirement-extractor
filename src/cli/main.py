@@ -3,80 +3,118 @@
 Find all PDF files in input directory and extract requirements from each file and export to Excel format.
 """
 
+# main.py
+
+import argparse
 import sys
 from pathlib import Path
 
-# Add src to path so we can import our modules
-src_path = Path(__file__).parent.parent
-sys.path.insert(0, str(src_path))
+# Add repo root and src to path so we can import our modules
+repo_root = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(repo_root))
 
-from utils.logging_config import setup_logger
-from utils import file_operations as fo
-from llm_integration.ollama_client import get_client
-from requirement_extraction.requirement_extractor import extract_requirements_from_pdf
-from requirement_extraction.excel_writer import write_to_excel
+from config.loader import load_config
+from src.evaluation.quality_evaluator import EvaluationInputError, evaluate_quality
+from src.requirement_extraction.requirement_extractor import (
+    PartialExtractionError,
+    RequirementExtractor,
+)
+from src.utils.logging_config import configure_logging
+from src.vlm_service import VLMServiceManager
 
-# Get a logger instance
-logger = setup_logger("main")
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Local Requirement Extractor")
+    parser.add_argument(
+        "command",
+        nargs="?",
+        default="extract",
+        choices=[
+            "extract",
+            "prepare-pdf",
+            "evaluate",
+            "check-vlm-service",
+            "start-vlm-service",
+        ],
+        help="Command to execute",
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path("config.yaml"),
+        help="Path to configuration file",
+    )
+    parser.add_argument(
+        "--references-dir",
+        type=Path,
+        help="Directory containing one reference workbook per document",
+    )
+    parser.add_argument(
+        "--runs-dir",
+        type=Path,
+        help="Directory containing extraction run output directories",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        help="Directory where evaluation reports will be written",
+    )
+    parser.add_argument(
+        "--document-inventory",
+        type=Path,
+        help="Optional CSV mapping document_id, pdf_path, reference_xlsx, and notes",
+    )
+    return parser.parse_args(argv)
 
 
-def main():
-    """Extract requirements from all PDFs in data/input and export to Excel format."""
+def main() -> None:
+    args = parse_args()
 
-    # Instantiate the OllamaClient
-    ollama_client = get_client()
-    
-    # Define paths
-    input_dir = Path("data/input")
-    output_dir = Path("data/output")
-    
-    if not fo.dir_exists(input_dir):
-        logger.error(f"Input directory not found: {input_dir}")
-        return
-    
-    if not fo.dir_exists(output_dir):
-        logger.error(f"Output directory not found: {output_dir}")
-        return
-    
-    # Find all PDF files in input directory
-    pdf_files = list(input_dir.glob("*.pdf"))
-    
-    if not pdf_files:
-        logger.warning("No PDF files found in data/input directory")
-        return
-    
-    logger.info(f"Found {len(pdf_files)} PDF file(s) to convert")
-    
-    # Process each PDF file
-    for pdf_file in pdf_files:
+    if args.command == "evaluate":
+        missing_args = [
+            name
+            for name in ("references_dir", "runs_dir", "output_dir")
+            if getattr(args, name) is None
+        ]
+        if missing_args:
+            raise SystemExit(
+                f"evaluate requires: {', '.join('--' + name.replace('_', '-') for name in missing_args)}"
+            )
         try:
-            logger.info(f"Processing: {pdf_file.name}")
-            
-            # Extract requirements from PDF
-            requirements = extract_requirements_from_pdf(str(pdf_file))
-            logger.info(f"Successfully extracted {len(requirements)} requirements from {pdf_file.name}")
-            
-            # Generate Excel output path
-            excel_filename = pdf_file.stem + "_requirements.xlsx"
-            excel_output_path = output_dir / excel_filename
-            
-            # Export to Excel
-            logger.info(f"Exporting requirements to Excel: {excel_filename}")
-            write_to_excel(requirement_list=requirements, output_path=str(excel_output_path))
-            logger.info(f"Successfully exported {len(requirements)} requirements to {excel_output_path}")
-            
-            # Print summary for user
-            print(f"\n✓ Processed {pdf_file.name}:")
-            print(f"  - Extracted {len(requirements)} requirements")
-            print(f"  - Exported to: {excel_output_path}")
-            if not requirements.is_empty():
-                print(f"  - Requirement codes: {', '.join(requirements.get_codes())}")
-            
-        except Exception as e:
-            logger.error(f"Failed to process {pdf_file.name}: {e}")
-            print(f"\n✗ Failed to process {pdf_file.name}: {str(e)}")
+            evaluate_quality(
+                references_dir=args.references_dir,
+                runs_dir=args.runs_dir,
+                output_dir=args.output_dir,
+                document_inventory=args.document_inventory,
+            )
+        except EvaluationInputError as exc:
+            raise SystemExit(f"Evaluation input error: {exc}") from exc
+        print(f"Evaluation reports written to {args.output_dir}")
+        return
 
-    
+    config = load_config(args.config)
+    configure_logging(config.logging)
+    vlm_service = VLMServiceManager(config.parser)
+
+    if args.command == "check-vlm-service":
+        vlm_service.ensure_healthy()
+        print(f"VLM service reachable at {config.parser.vlm_server_url}")
+        return
+
+    if args.command == "start-vlm-service":
+        raise SystemExit(vlm_service.start_server())
+
+    extractor = RequirementExtractor(config, command_name=args.command)
+    try:
+        extractor.run()
+    except (
+        PartialExtractionError,
+        FileExistsError,
+        FileNotFoundError,
+        ValueError,
+    ) as exc:
+        raise SystemExit(str(exc)) from exc
+
 
 if __name__ == "__main__":
     main()

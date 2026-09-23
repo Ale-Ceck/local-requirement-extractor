@@ -1,0 +1,23 @@
+input:
+  path: ./data/output/example.chunks.json
+  mode: chunk_cache
+  recursive: false
+
+output:
+  directory: ./data/output-replay
+
+chunking:
+  max_chunk_chars: 4000
+
+parallel:
+  enabled: true
+  max_workers: 5
+
+ollama:
+  temperature: 0.0
+  seed: 42
+
+logging:
+  level: INFO
+  log_llm_prompts: false
+  log_llm_responses: false

@@ -1,4 +1,7 @@
-from typing import Dict, Any
+import hashlib
+import inspect
+
+REQUIREMENT_EXTRACTION_PROMPT_VERSION = "2026-09-22.1"
 
 # ==============================================================================
 # 1. Core Prompt Template for Requirement Extraction
@@ -6,12 +9,14 @@ from typing import Dict, Any
 #    It instructs the LLM on its role, task, constraints, and output format.
 # ==============================================================================
 
+
 # Define a function to generate the main extraction prompt.
 # This allows for dynamic injection of context (like ground truth schema).
-def get_requirement_extraction_prompt(text_content: str,
-                                      output_schema_json: str, # JSON schema string of Requirement Pydantic model
-                                      few_shot_examples: str = "" # String containing few-shot examples
-                                      ) -> str:
+def get_requirement_extraction_prompt(
+    text_content: str,
+    output_schema_json: str,  # JSON schema string of Requirement Pydantic model
+    few_shot_examples: str = "",  # String containing few-shot examples
+) -> str:
     """
     Generates the prompt for extracting requirements from a given text.
 
@@ -30,24 +35,30 @@ def get_requirement_extraction_prompt(text_content: str,
     """
 
     # Task Instruction: Detail the specific task
-    task_instruction = f"""
+    task_instruction = """
     [Task]
     Your task is to identify and extract all requirement entries from the provided text in the [Document] section. A requirement consists of:
     1.  A unique **code** (e.g., REQ-123, HAA-54).
     2.  A **description** detailing what the system must do.
+    3.  A list of **source_segment_ids** containing the anchor IDs that support that requirement.
 
     [Output Instructions]
     1.  Produce a single, valid JSON array of objects.
-    2.  Each object in the array must contain two keys: "code" and "description".
+    2.  Each object in the array must contain three keys: "code", "description", and "source_segment_ids".
     3.  If no requirements are found in the text, output an empty JSON array: `[]`.
     4.  Do not include any text or explanations outside of the JSON array.
 
     [Extraction Rules]
     - **Source Material:** Process **ONLY** the text inside the `[Document]` section. The examples are for learning and must be ignored in the final output.
-    - **Association:** Each requirement code must be paired with the specific description text that directly follows it. **Do not** reuse the same description for different codes.
+    - **Anchors:** The document contains source anchors formatted as `<a id="SEGMENT_ID"></a>`. These anchors identify the semantic source segments. Use them to populate `source_segment_ids`.
+    - **Association:** Each requirement code must be paired with the contiguous requirement body that follows it, even when that body is split across multiple anchored segments. **Do not** reuse the same description for different codes.
+    - **Continuation Spans:** Anchors inserted between spans do **not** break the same requirement body. After a requirement code, continue collecting the description from consecutive anchored segments that belong to the same requirement body.
+    - **Included Continuations:** Treat consecutive prose lines, bullet lines, note lines, and same-body continuation lines as part of the same description when they follow the requirement code and remain under the same requirement body.
+    - **Stop Boundaries:** Stop the current requirement description only when you reach the next requirement code or a new section heading that starts a different document section.
     - **Verbatim Extraction:** The requirement code and description must be extracted exactly as they appear in the text, without any summarization, paraphrasing, or alteration.
-    - **Completeness:** Ensure the entire text of the requirement description is included, even if it spans multiple lines or paragraphs.
+    - **Completeness:** Ensure the entire text of the requirement description is included, even if it spans multiple lines, bullets, notes, or paragraphs across multiple anchored segments.
     - **Fidelity:** Only extract requirements that are explicitly present in the text. Do not invent or infer requirements.
+    - **Citation Fidelity:** Every extracted requirement must cite the anchor IDs for all segments that directly support the full requirement body. If a requirement spans multiple anchored segments, include every relevant ID in order. Never invent anchor IDs.
     """
 
     # Output Format Instruction: Crucially, tell the LLM the expected JSON schema.
@@ -77,11 +88,13 @@ def get_requirement_extraction_prompt(text_content: str,
     """
 
     # Combine all parts of the prompt
-    #{output_format_instruction.strip()}
+    # {output_format_instruction.strip()}
     full_prompt = f"""
     {system_instruction.strip()}
 
     {task_instruction.strip()}
+
+    {output_format_instruction.strip()}
 
     {examples_section.strip()}
 
@@ -92,97 +105,158 @@ def get_requirement_extraction_prompt(text_content: str,
     """
     return full_prompt.strip()
 
+
 # ==============================================================================
 # 2. Few-Shot Examples (Optional but Recommended)
 #    Store few-shot examples separately. These can be generated or hand-crafted.
 #    Use a format that's easy to embed into the main prompt.
 # ==============================================================================
 
-# Example structure for few-shot examples. 
+# Example structure for few-shot examples.
 FEW_SHOT_REQUIREMENT_EXAMPLES = """
 Example 1:
-"## 3 FUNCTIONAL AND PERFORMANCE REQUIREMENTS
+"<a id=\"seg-p127-i001\"></a>
+#### 4.2.1 Heat Dissipation
 
-## 3.1 HAA Functions
+<a id=\"seg-p127-i002\"></a>
+## HAA-127 / CREATED / T
 
-## HAA-54 / CREATED / R
+<a id=\"seg-p127-i003\"></a>
+The following operational average and maximum dissipation shall be respected:
 
-HAA shall provide acceleration measurements in three orthogonal axes.
+<a id=\"seg-p127-i004\"></a>
+• HAA ADA average: 13 W
 
-## 3.2 HAA Switch On and Operating
+<a id=\"seg-p127-i005\"></a>
+• HAA ACU average: 9 W
 
-## HAA-56 / CREATED / T
+<a id=\"seg-p127-i006\"></a>
+• HAA ADA design max: 19.5 W
 
-64
+<a id=\"seg-p127-i007\"></a>
+• HAA ACU design max: 10 W
 
-65
-
-66
-
-The HAA full performances shall be achieved within 36 h after switch-on.
+<a id=\"seg-p127-i008\"></a>
+#### 4.2.2 Radiative and conductive interfaces
 "
 
 Output JSON:
 [
     {
-        "code": "HAA-54",
-        "description": "HAA shall provide acceleration measurements in three orthogonal axes."
-    },
-    {
-        "code": "HAA-56",
-        "description": "The HAA full performances shall be achieved within 36 h after switch-on."
+        "code": "HAA-127",
+        "description": "The following operational average and maximum dissipation shall be respected:\\n• HAA ADA average: 13 W\\n• HAA ACU average: 9 W\\n• HAA ADA design max: 19.5 W\\n• HAA ACU design max: 10 W",
+        "source_segment_ids": ["seg-p127-i002", "seg-p127-i003", "seg-p127-i004", "seg-p127-i005", "seg-p127-i006", "seg-p127-i007"]
     }
 ]
 
 Example 2:
 "
-## HAA-57 / CREATED / T
+<a id=\"seg-thermal-001\"></a>
+#### 2.1 Temperature measurement
 
-● Reference: NIE-ADSF-SYS-RS-029004 ●● Issue: 4 ●●● Date: 29.11.2039
+<a id=\"seg-thermal-002\"></a>
+## REQ-THERM-001
 
-## PROPRIETARY &amp; CONFIDENTIAL INFORMATION
+<a id=\"seg-thermal-003\"></a>
+The unit shall measure temperature at the designated reference point.
 
-67
+<a id=\"seg-thermal-004\"></a>
+Note: readings shall use the same reference point.
 
-68
+<a id=\"seg-thermal-005\"></a>
+#### 2.2 Verification procedure
 
-The HAA shall include dedicated heaters with 90 W peak power consumption (60 W average) to warm up the internal shock absorbers within 3600 s to cope with NIE shock levels.
-
-## 3.3 Conditions for Performance Requirements
-
-## 3.3.1 General Conditions
-
-## HAA-60 / CREATED / T,A
-
-The performance requirements shall be met under worst case conditions over the lifetime from BOL to EOL in the presence of all known effects influencing this performance to include (where appropriate) but not restricted to environmental, launch loads, spacecraft dynamic conditions, ageing, radiation environment, bias, noise, scale factor, quantisation, temperature effects, unit conversion factor errors, 1g to 0g effects and SEU's.
-
-## HAA-62 / CREATED / T,A
-
-The performances specified in this section shall be met for the temperatures operating range as defined in [AD 03] at unit Temperature Reference Point (TRP).
+<a id=\"seg-thermal-006\"></a>
+The verification procedure is described separately.
 "
 Output JSON:
 [
     {
-        "code": "HAA-57",
-        "description": "The HAA shall include dedicated heaters with 90 W peak power consumption (60 W average) to warm up the internal shock absorbers within 3600 s to cope with NIE shock levels."
-    },
+        "code": "REQ-THERM-001",
+        "description": "The unit shall measure temperature at the designated reference point.\\nNote: readings shall use the same reference point.",
+        "source_segment_ids": ["seg-thermal-002", "seg-thermal-003", "seg-thermal-004"]
+    }
+]
+
+Example 3:
+"
+<a id=\"seg-p313-i001\"></a>
+## HAA-313 / CREATED / R
+
+<a id=\"seg-p313-i002\"></a>
+The HAA shall be designed to work with 1 heater line (Nominal + Redundant) controlled by spacecraft. For that purpose, heaters and 3 thermistors shall be procured and installed by the supplier and can be connected to spacecraft active thermal control.
+
+<a id=\"seg-p313-i003\"></a>
+Note 1: the control will be performed with an ON/OFF coarse temperature control.
+
+<a id=\"seg-p313-i004\"></a>
+Note 2: thermistors shall be of Type 3 as specified in [AD 03].
+
+<a id=\"seg-p313-i005\"></a>
+#### 4.2.5 Thermal Model
+"
+Output JSON:
+[
     {
-        "code": "HAA-60",
-        "description": "The performance requirements shall be met under worst case conditions over the lifetime from BOL to EOL in the presence of all known effects influencing this performance to include (where appropriate) but not restricted to environmental, launch loads, spacecraft dynamic conditions, ageing, radiation environment, bias, noise, scale factor, quantisation, temperature effects, unit conversion factor errors, 1g to 0g effects and SEU's."
-    },
+        "code": "HAA-313",
+        "description": "The HAA shall be designed to work with 1 heater line (Nominal + Redundant) controlled by spacecraft. For that purpose, heaters and 3 thermistors shall be procured and installed by the supplier and can be connected to spacecraft active thermal control.\\nNote 1: the control will be performed with an ON/OFF coarse temperature control.\\nNote 2: thermistors shall be of Type 3 as specified in [AD 03].",
+        "source_segment_ids": ["seg-p313-i001", "seg-p313-i002", "seg-p313-i003", "seg-p313-i004"]
+    }
+]
+
+Example 4:
+"
+<a id=\"seg-p072-i001\"></a>
+##### 3.3.2.2 Microvibration Environment
+
+<a id=\"seg-p072-i002\"></a>
+## HAA-72 / CREATED / A,R
+
+<a id=\"seg-p072-i003\"></a>
+The HAA shall meet its performance requirements during the radio science experiments when exposed to a microvibration envelope given in Figure 3.3-3, Figure 3.3-4, Figure 3.3-5, Figure 3.3-6, Figure 3.3-7, and Figure 3.3-8.
+
+<a id=\"seg-p072-i004\"></a>
+Figure 3.3-3: MGA Y microstepping
+"
+Output JSON:
+[
     {
-        "code": "HAA-62",
-        "description": "The performances specified in this section shall be met for the temperatures operating range as defined in [AD 03] at unit Temperature Reference Point (TRP)."
+        "code": "HAA-72",
+        "description": "The HAA shall meet its performance requirements during the radio science experiments when exposed to a microvibration envelope given in Figure 3.3-3, Figure 3.3-4, Figure 3.3-5, Figure 3.3-6, Figure 3.3-7, and Figure 3.3-8.",
+        "source_segment_ids": ["seg-p072-i002", "seg-p072-i003"]
     }
 ]
 """
+
+
+def get_requirement_extraction_prompt_fingerprint() -> dict[str, str]:
+    """Return a stable identifier and checksum for the active extraction prompt."""
+    prompt_source = inspect.getsource(get_requirement_extraction_prompt)
+    payload = "\n".join(
+        (
+            REQUIREMENT_EXTRACTION_PROMPT_VERSION,
+            prompt_source,
+            FEW_SHOT_REQUIREMENT_EXAMPLES,
+        )
+    )
+    return {
+        "version": REQUIREMENT_EXTRACTION_PROMPT_VERSION,
+        "sha256": hashlib.sha256(payload.encode("utf-8")).hexdigest(),
+    }
+
 
 # ==============================================================================
 # 3. Utility for getting prompt versions or specific prompt types
 #    If you have multiple types of prompts (e.g., for summary, for validation, etc.)
 # ==============================================================================
 
-def get_prompt(prompt_name: str, text_content: str, output_schema_json: str, include_few_shot: bool = True) -> str:
+
+def get_prompt(
+    prompt_name: str,
+    text_content: str,
+    output_schema_json: str,
+    include_few_shot: bool = True,
+) -> str:
     """
     Retrieves a specific prompt template by name.
 
@@ -202,9 +276,7 @@ def get_prompt(prompt_name: str, text_content: str, output_schema_json: str, inc
 
     if prompt_name == "requirement_extraction":
         return get_requirement_extraction_prompt(
-            text_content,
-            output_schema_json,
-            few_shot_examples_str
+            text_content, output_schema_json, few_shot_examples_str
         )
     # Add more elif blocks for other prompt types if needed in the future
     # elif prompt_name == "summary":
@@ -212,13 +284,15 @@ def get_prompt(prompt_name: str, text_content: str, output_schema_json: str, inc
     else:
         raise ValueError(f"Unknown prompt name: {prompt_name}")
 
+
 # ==============================================================================
 # 4. Example Usage (for testing/demonstration)
 # ==============================================================================
 
 if __name__ == "__main__":
-    from src.data_models.requirement import Requirement
     import json
+
+    from src.data_models.requirement import Requirement
 
     # Get the JSON schema from your Pydantic model
     requirement_schema = json.dumps(Requirement.model_json_schema(), indent=2)
@@ -234,18 +308,18 @@ if __name__ == "__main__":
         "requirement_extraction",
         sample_doc_content,
         requirement_schema,
-        include_few_shot=True
+        include_few_shot=True,
     )
     print("--- Prompt with Few-Shot Examples ---")
     print(prompt_with_examples)
-    print("\n" + "="*80 + "\n")
+    print("\n" + "=" * 80 + "\n")
 
     # Get the prompt without few-shot examples
     prompt_without_examples = get_prompt(
         "requirement_extraction",
         sample_doc_content,
         requirement_schema,
-        include_few_shot=False
+        include_few_shot=False,
     )
     print("--- Prompt Without Few-Shot Examples ---")
     print(prompt_without_examples)

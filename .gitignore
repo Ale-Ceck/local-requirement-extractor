@@ -4,6 +4,16 @@
 *.log
 *.md
 !README.md
+!docs/implementation.md
+!docs/validation.md
+!docs/adr/0001-source-document-report-layout.md
+!tests/fixtures/parsed_documents/sample_parsed_document.json
+!tests/fixtures/paddle_examples/example_12_res.json
+!tests/fixtures/paddle_examples/example_12.md
+
+*.pyc
+__pycache__/
+*.log.*
 
 .env*
 *.DS_Store

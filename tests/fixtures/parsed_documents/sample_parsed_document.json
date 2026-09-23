@@ -1,0 +1,116 @@
+{
+  "source_document": "fixture-sample.pdf",
+  "pages": [
+    {
+      "page": 0,
+      "width": 1000,
+      "height": 1400,
+      "segments": [
+        {
+          "segment_id": "seg-p000-i001",
+          "segment_kind": "text",
+          "paddle_label": "paragraph_title",
+          "page": 0,
+          "text_content": "3 Functional Requirements",
+          "text_markdown": "## 3 Functional Requirements",
+          "bbox": [0, 0, 100, 20],
+          "bbox_norm": [0.0, 0.0, 0.1, 0.0142857143],
+          "polygon_points": [],
+          "source_block_ids": ["blk-p001-i001"],
+          "group_id": 0,
+          "block_order": 1,
+          "section_path": ["3 Functional Requirements"],
+          "heading_level": 2,
+          "included_for_extraction": true,
+          "metadata": {
+            "page_image_path": null
+          }
+        },
+        {
+          "segment_id": "seg-p000-i002",
+          "segment_kind": "text",
+          "paddle_label": "text",
+          "page": 0,
+          "text_content": "REQ-100 The instrument shall provide thermal telemetry.",
+          "text_markdown": "REQ-100 The instrument shall provide thermal telemetry.",
+          "bbox": [0, 30, 400, 70],
+          "bbox_norm": [0.0, 0.0214285714, 0.4, 0.05],
+          "polygon_points": [],
+          "source_block_ids": ["blk-p001-i002"],
+          "group_id": 1,
+          "block_order": 2,
+          "section_path": ["3 Functional Requirements"],
+          "included_for_extraction": true,
+          "metadata": {
+            "page_image_path": null
+          }
+        },
+        {
+          "segment_id": "seg-p000-i003",
+          "segment_kind": "text",
+          "paddle_label": "text",
+          "page": 0,
+          "text_content": "REQ-101 The instrument shall retain telemetry for 24 hours.",
+          "text_markdown": "REQ-101 The instrument shall retain telemetry for 24 hours.",
+          "bbox": [0, 80, 420, 120],
+          "bbox_norm": [0.0, 0.0571428571, 0.42, 0.0857142857],
+          "polygon_points": [],
+          "source_block_ids": ["blk-p001-i003"],
+          "group_id": 2,
+          "block_order": 3,
+          "section_path": ["3 Functional Requirements"],
+          "included_for_extraction": true,
+          "metadata": {
+            "page_image_path": null
+          }
+        }
+      ]
+    },
+    {
+      "page": 1,
+      "width": 1000,
+      "height": 1400,
+      "segments": [
+        {
+          "segment_id": "seg-p001-i001",
+          "segment_kind": "text",
+          "paddle_label": "paragraph_title",
+          "page": 1,
+          "text_content": "3.1 Interfaces",
+          "text_markdown": "## 3.1 Interfaces",
+          "bbox": [0, 0, 80, 20],
+          "bbox_norm": [0.0, 0.0, 0.08, 0.0142857143],
+          "polygon_points": [],
+          "source_block_ids": ["blk-p002-i001"],
+          "group_id": 0,
+          "block_order": 1,
+          "section_path": ["3.1 Interfaces"],
+          "heading_level": 2,
+          "included_for_extraction": true,
+          "metadata": {
+            "page_image_path": null
+          }
+        },
+        {
+          "segment_id": "seg-p001-i002",
+          "segment_kind": "text",
+          "paddle_label": "text",
+          "page": 1,
+          "text_content": "REQ-102 The instrument shall expose telemetry over SpaceWire.",
+          "text_markdown": "REQ-102 The instrument shall expose telemetry over SpaceWire.",
+          "bbox": [0, 25, 450, 70],
+          "bbox_norm": [0.0, 0.0178571429, 0.45, 0.05],
+          "polygon_points": [],
+          "source_block_ids": ["blk-p002-i002"],
+          "group_id": 1,
+          "block_order": 2,
+          "section_path": ["3.1 Interfaces"],
+          "included_for_extraction": true,
+          "metadata": {
+            "page_image_path": null
+          }
+        }
+      ]
+    }
+  ]
+}
